@@ -960,7 +960,7 @@ class CDSAgent(BaseAgent):
                 print(clus_type)
                 raise NotImplementedError
 
-            # update cluster to losss_fn
+            # update cluster to loss_fn
             for domain_name in ("source", "target"):
                 self.loss_fn.module.set_broadcast(
                     domain_name,
