@@ -31,7 +31,7 @@ ls_abbr = {
 }
 
 
-class CDSAgent(BaseAgent):
+class FixCLAgent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -42,7 +42,7 @@ class CDSAgent(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(CDSAgent, self).__init__(config)
+        super(FixCLAgent, self).__init__(config)
 
         # for MIM
         self.momentum_softmax_target = torchutils.MomentumSoftmax(
@@ -101,12 +101,12 @@ class CDSAgent(BaseAgent):
                 lbl = torch.ones(1)*lbl
                 self.predict_ordered_labels_pseudo_source[ind] = lbl
         else:
-            self.predict_ordered_labels_pseudo_source = (
+            self.source_labels = (
                 torch.zeros(train_len_src, dtype=torch.long).detach().cuda() - 1
             )
-            for ind, lbl in zip(self.fewshot_index_source, self.fewshot_label_source):
-                lbl = torch.ones(1)*lbl
-                self.predict_ordered_labels_pseudo_source[ind] = lbl
+            for ind, _, lbl in self.get_attr("source", "train_loader"):
+                lbl = torch.ones(1, dtype=torch.long).cuda()*lbl.cuda()
+                self.source_labels[ind] = lbl
         self.predict_ordered_labels_pseudo_target = (
             torch.zeros(train_len_tgt, dtype=torch.long).detach().cuda() - 1
         )
@@ -430,11 +430,11 @@ class CDSAgent(BaseAgent):
                     out_unl = self.cls_head(feat_unl)
 
                 # Semi Supervised
-                if self.semi and domain_name == "source":
-                    semi_mask = ~torchutils.isin(indices_unl, fewshot_index)
+                # if self.semi and domain_name == "source":
+                #     semi_mask = ~torchutils.isin(indices_unl, fewshot_index)
 
-                    indices_semi = indices_unl[semi_mask]
-                    out_semi = out_unl[semi_mask]
+                #     indices_semi = indices_unl[semi_mask]
+                #     out_semi = out_unl[semi_mask]
 
                 # Self-supervised Learning
                 if self.ssl:
@@ -452,39 +452,36 @@ class CDSAgent(BaseAgent):
                 }
 
                 if is_pseudo[domain_name]:
-                    if domain_name == "source":
-                        indices_pseudo = indices_semi
-                        out_pseudo = out_semi
-                        pseudo_domain = self.predict_ordered_labels_pseudo_source
-                    else:
+                    if domain_name == "target":
                         indices_pseudo = indices_unl
                         out_pseudo = out_unl  # [bs, class_num]
                         pseudo_domain = self.predict_ordered_labels_pseudo_target
                     thres = thres_dict[domain_name]
 
                     # calculate loss
-                    loss_pseudo, aux = torchutils.pseudo_label_loss(
-                        out_pseudo,
-                        thres=thres,
-                        mask=None,
-                        num_class=self.num_class,
-                        aux=True,
-                    )
-                    mask_pseudo = aux["mask"]
+                    if domain_name == "target":
+                        loss_pseudo, aux = torchutils.pseudo_label_loss(
+                            out_pseudo,
+                            thres=thres,
+                            mask=None,
+                            num_class=self.num_class,
+                            aux=True,
+                        )
+                        mask_pseudo = aux["mask"]
 
-                    # fewshot memory bank
-                    mb = self.get_attr("source", "memory_bank_wrapper")
-                    indices_lbd_tounl = fewshot_index[indices_lbd]
-                    mb_feat_lbd = mb.at_idxs(indices_lbd_tounl)
-                    fewshot_data_memory = update_data_memory(mb_feat_lbd, feat_lbd)
+                        # fewshot memory bank
+                        # mb = self.get_attr("source", "memory_bank_wrapper")
+                        # indices_lbd_tounl = fewshot_index[indices_lbd]
+                        # mb_feat_lbd = mb.at_idxs(indices_lbd_tounl)
+                        # fewshot_data_memory = update_data_memory(mb_feat_lbd, feat_lbd)
 
-                    # stat
-                    pred_selected = out_pseudo.argmax(dim=1)[mask_pseudo]
-                    indices_selected = indices_pseudo[mask_pseudo]
-                    indices_unselected = indices_pseudo[~mask_pseudo]
+                        # stat
+                        pred_selected = out_pseudo.argmax(dim=1)[mask_pseudo]
+                        indices_selected = indices_pseudo[mask_pseudo]
+                        indices_unselected = indices_pseudo[~mask_pseudo]
 
-                    pseudo_domain[indices_selected] = pred_selected
-                    pseudo_domain[indices_unselected] = -1
+                        pseudo_domain[indices_selected] = pred_selected
+                        pseudo_domain[indices_unselected] = -1
 
                 # Compute Loss
 
@@ -502,26 +499,26 @@ class CDSAgent(BaseAgent):
                     elif ls == "cls-info" and domain_name == "source":
                         loss_part = loss_info(feat_lbd, mb_feat_lbd, labels_lbd)
                     # semi-supervision learning on unlabled source
-                    elif ls == "semi-entmin" and domain_name == "source":
-                        loss_part = torchutils.entropy(out_semi)
-                    elif ls == "semi-condentmax" and domain_name == "source":
-                        bs = out_semi.size(0)
-                        prob_semi = F.softmax(out_semi, dim=1)
-                        prob_mean_semi = prob_semi.sum(dim=0) / bs
+                    # elif ls == "semi-entmin" and domain_name == "source":
+                    #     loss_part = torchutils.entropy(out_semi)
+                    # elif ls == "semi-condentmax" and domain_name == "source":
+                    #     bs = out_semi.size(0)
+                    #     prob_semi = F.softmax(out_semi, dim=1)
+                    #     prob_mean_semi = prob_semi.sum(dim=0) / bs
 
                         # update momentum
-                        self.momentum_softmax_source.update(
-                            prob_mean_semi.cpu().detach(), bs
-                        )
+                        # self.momentum_softmax_source.update(
+                        #     prob_mean_semi.cpu().detach(), bs
+                        # )
                         # get momentum probability
                         momentum_prob_source = (
                             self.momentum_softmax_source.softmax_vector.cuda()
                         )
                         # compute loss
-                        entropy_cond = -torch.sum(
-                            prob_mean_semi * torch.log(momentum_prob_source + 1e-5)
-                        )
-                        loss_part = -entropy_cond
+                        # entropy_cond = -torch.sum(
+                        #     prob_mean_semi * torch.log(momentum_prob_source + 1e-5)
+                        # )
+                        # loss_part = -entropy_cond
 
                     # learning on unlabeled target domain
                     elif ls == "tgt-entmin" and domain_name == "target":
@@ -562,10 +559,10 @@ class CDSAgent(BaseAgent):
                 # update memory_bank
                 if self.ssl:
                     self._update_memory_bank(domain_name, indices_unl, new_data_memory)
-                    if domain_name == "source":
-                        self._update_memory_bank(
-                            domain_name, indices_lbd_tounl, fewshot_data_memory
-                        )
+                    # if domain_name == "source":
+                    #     self._update_memory_bank(
+                    #         domain_name, indices_lbd_tounl, fewshot_data_memory
+                    #     )
 
                 # update lr info
                 tqdm_post["lr"] = torchutils.get_lr(self.optim, g_id=-1)
@@ -643,9 +640,9 @@ class CDSAgent(BaseAgent):
                 )
 
         else:
-            mask = self.predict_ordered_labels_pseudo_source != -1
+            mask = self.source_labels != -1
             # mask = torch.ones()
-            fewshot_label["src"] = self.predict_ordered_labels_pseudo_source[mask]
+            fewshot_label["src"] = self.source_labels[mask]
             fewshot_index["src"] = mask.nonzero().squeeze(1)
         if is_tgt:
             mask = self.predict_ordered_labels_pseudo_target != -1

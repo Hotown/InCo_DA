@@ -14,7 +14,7 @@ def adjust_config(config):
     set_default(config, "cuda", value=True)
     set_default(config, "gpu_device", value=None)
     set_default(config, "pretrained_exp_dir", value=None)
-    set_default(config, "agent", value="CDSAgent")
+    set_default(config, "agent", value="FixCLAgent")
 
     # data_params
     set_default(config.data_params, "aug_src", callback="aug")
@@ -67,7 +67,7 @@ def init_parser():
     parser.add_argument(
         "--config",
         type=str,
-        default="config/office.json",
+        default="config/office/D-A-all.json",
         help="the path to the config",
     )
     parser.add_argument("--exp_id", type=str, default=None)
