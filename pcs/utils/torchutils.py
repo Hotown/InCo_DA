@@ -288,8 +288,6 @@ def top_k_for_each_class(pred, prob, num_class):
 
 
 # MIM
-
-
 class MomentumSoftmax:
     def __init__(self, num_class, m=1):
         self.softmax_vector = torch.zeros(num_class).detach() + 1.0 / num_class

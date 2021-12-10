@@ -6,12 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from models import (CosineClassifier, MemoryBank, SSDALossModule,
-                        compute_variance, loss_info, torch_kmeans,
-                        update_data_memory)
-from utils import (AverageMeter, datautils, is_div, per, reverse_domain,
-                       torchutils, utils)
+                    compute_variance, loss_info, torch_kmeans,
+                    update_data_memory)
 from sklearn import metrics
+from torch.nn.modules.activation import ReLU
+from torch.nn.modules.linear import Linear
 from tqdm import tqdm
+from utils import (AverageMeter, datautils, is_div, per, reverse_domain,
+                   torchutils, utils)
 
 from . import BaseAgent
 
@@ -22,6 +24,7 @@ ls_abbr = {
     "proto-tgt": "Pt",
     "cls-info": "info",
     "I2C-cross": "C",
+    "I2M-cross": "CM",
     "semi-condentmax": "sCE",
     "semi-entmin": "sE",
     "tgt-condentmax": "tCE",
@@ -61,7 +64,7 @@ class FixCLAgent(BaseAgent):
             self._init_memory_bank()
 
         # init statics
-        self._init_labels()
+        self._init_labels() 
         self._load_fewshot_to_cls_weight()
 
     def _define_task(self, config):
@@ -261,7 +264,15 @@ class FixCLAgent(BaseAgent):
 
             if pretrained:
                 model = net_class(pretrained=pretrained)
-                model.fc = nn.Linear(model.fc.in_features, out_dim)
+                if self.config.model_params.mlp:
+                    model.fc = nn.Sequential(
+                        nn.Linear(model.fc.in_features, model.fc.in_features),
+                        nn.BatchNorm1d(model.fc.in_features),
+                        nn.ReLU(inplace=True),
+                        nn.Linear(model.fc.in_features, out_dim)
+                    )
+                else:
+                    model.fc = nn.Linear(model.fc.in_features, out_dim)
                 torchutils.weights_init(model.fc)
             else:
                 model = net_class(pretrained=False, num_classes=out_dim)
@@ -363,6 +374,16 @@ class FixCLAgent(BaseAgent):
         self._load_fewshot_to_cls_weight()
         if self.fewshot:
             fewshot_index = torch.tensor(self.fewshot_index_source).cuda()
+        
+        # Mix: init target labels
+        if self.config.model_params.mix:
+            k = self.num_class
+            memory_bank_instance_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
+            target_labels, target_cluster_centroids, target_cluster_phi = torch_kmeans(
+                k_list=[k],
+                data=memory_bank_instance_target,
+                init_centroids=self.get_attr("source", "memory_bank_proto").as_tensor(),
+                seed=self.current_epoch + self.current_iteration)
 
         tqdm_batch = tqdm(
             total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
@@ -409,7 +430,7 @@ class FixCLAgent(BaseAgent):
 
                 if self.cls and domain_name == "source":
                     indices_lbd, images_lbd, labels_lbd = next(source_lbd_iter)
-                    indices_lbl = indices_lbd.cuda()
+                    indices_lbd = indices_lbd.cuda()
                     images_lbd = images_lbd.cuda()
                     labels_lbd = labels_lbd.cuda()
                     feat_lbd = self.model(images_lbd)
@@ -423,11 +444,31 @@ class FixCLAgent(BaseAgent):
                     )
 
                     indices_unl, images_unl, _ = next(loader_iter)
+                    labels_unl = target_labels.squeeze()[indices_unl]
                     images_unl = images_unl.cuda()
                     indices_unl = indices_unl.cuda()
                     feat_unl = self.model(images_unl)
                     feat_unl = F.normalize(feat_unl, dim=1)
                     out_unl = self.cls_head(feat_unl)
+
+                # Update mix proto
+                if self.config.model_params.mix and domain_name == "target":
+                    for idx in range(self.num_class):
+                        if (len(feat_lbd[labels_lbd == idx]) == 0) or (len(feat_unl[labels_unl == idx]) == 0):
+                            continue
+                        # new_proto = torch.cat(
+                        #     (feat_lbd[labels_lbd == idx],
+                        #     feat_unl[labels_unl == idx]
+                        # )).mean(0)
+                        new_proto = feat_lbd[labels_lbd == idx].mean(0) + feat_unl[labels_unl == idx].mean(0)
+                        idx = torch.ones(1, dtype=torch.int64) * idx
+                        idx = idx.cuda()
+                        memory_bank_proto_mix = self.get_attr("mix", "memory_bank_proto")
+                        old_proto = memory_bank_proto_mix.at_idxs(idx.cuda())
+                        new_proto = new_proto.view(1, -1)
+                        update_proto = update_data_memory(old_proto, new_proto)
+                        memory_bank_proto_mix.update(idx, update_proto)
+                        self.loss_fn.module.set_broadcast("mix", "memory_bank_proto", memory_bank_proto_mix.as_tensor())
 
                 # Semi Supervised
                 # if self.semi and domain_name == "source":
@@ -888,14 +929,30 @@ class FixCLAgent(BaseAgent):
     @torch.no_grad()
     def _init_memory_bank(self):
         out_dim = self.config.model_params.out_dim
+        memory_bank_mix = MemoryBank(self.num_class, out_dim)
+        self.set_attr("mix", "memory_bank_proto", memory_bank_mix)
+        self.loss_fn.module.set_broadcast(
+            "mix", "memory_bank_proto", memory_bank_mix.as_tensor()
+        )
         for domain_name in ("source", "target"):
             data_len = self.get_attr(domain_name, "train_len")
             memory_bank = MemoryBank(data_len, out_dim)
+            memory_bank_proto = MemoryBank(self.num_class, out_dim)
             if self.config.model_params.load_memory_bank:
                 self.compute_train_features()
                 idx = self.get_attr(domain_name, "train_indices")
                 feat = self.get_attr(domain_name, "train_features")
                 memory_bank.update(idx, feat)
+                # init source proto memorybank
+                if domain_name == "source" and self.config.model_params.mix:
+                    labels = self.get_attr(domain_name, "train_ordered_labels")[idx]
+                    for idx in range(self.num_class):
+                        idx = torch.ones(1, dtype=torch.int64) * idx
+                        idx = idx.cuda()
+                        old_proto = memory_bank_proto.at_idxs(idx)
+                        new_proto = feat[labels == idx].mean(0).view(1,-1)
+                        update_proto = update_data_memory(old_proto, new_proto)
+                        memory_bank.update(idx, update_proto)
                 # self.logger.info(
                 #     f"Initialize memorybank-{domain_name} with pretrained output features"
                 # )
@@ -903,9 +960,13 @@ class FixCLAgent(BaseAgent):
                 if self.config.data_params.name in ["visda17", "domainnet"]:
                     delattr(self, f"train_indices_{domain_name}")
                     delattr(self, f"train_features_{domain_name}")
-
+            if domain_name == "source" and self.config.model_params.mix:
+                self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
+                self.loss_fn.module.set_broadcast(
+                    domain_name, "memory_bank_proto", memory_bank_proto.as_tensor()
+                )
             self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
-
+            # self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
             self.loss_fn.module.set_attr(domain_name, "data_len", data_len)
             self.loss_fn.module.set_broadcast(
                 domain_name, "memory_bank", memory_bank.as_tensor()

@@ -2,11 +2,11 @@
   "seed": 1337,
   "exp_base": "./exps",
   "exp_name": "office",
-  "exp_id": "dslr->amazon",
+  "exp_id": "webcam->amazon",
   "agent": "FixCLAgent",
   "data_params": {
     "name": "office",
-    "source": "dslr",
+    "source": "webcam",
     "target": "amazon",
     "fewshot": "",
     "aug": "aug_0"
@@ -24,8 +24,6 @@
     "cls_update": true
   },
   "model_params": {
-    "mlp": false,
-    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
@@ -39,7 +37,7 @@
     "loss": [
       "cls-so",
       "proto-each",
-      "I2M-cross",
+      "I2C-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",

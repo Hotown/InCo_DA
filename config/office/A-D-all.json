@@ -2,12 +2,12 @@
   "seed": 1337,
   "exp_base": "./exps",
   "exp_name": "office",
-  "exp_id": "dslr->amazon",
+  "exp_id": "amazon->dslr",
   "agent": "FixCLAgent",
   "data_params": {
     "name": "office",
-    "source": "dslr",
-    "target": "amazon",
+    "source": "amazon",
+    "target": "dslr",
     "fewshot": "",
     "aug": "aug_0"
   },
@@ -24,33 +24,31 @@
     "cls_update": true
   },
   "model_params": {
-    "mlp": false,
-    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
-    "load_weight_thres": 50,
-    "load_weight_epoch": 3
+    "load_weight_thres": 10,
+    "load_weight_epoch": 5
   },
   "loss_params": {
-    "thres_src": 0.99,
+    "thres_src": 0.95,
     "thres_tgt": 0.99,
     "temp": 0.1,
     "loss": [
       "cls-so",
       "proto-each",
-      "I2M-cross",
+      "I2C-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 1, 0.05, 0.05, 0.05, 0.05],
+    "weight": [1, 1, 1, 0.1, 0.01, 0.1, 0.01],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],
-      "n_k": 15,
-      "k": [31, 62]
+      "n_k": 10,
+      "k": [31, 31, 62]
     }
   }
 }

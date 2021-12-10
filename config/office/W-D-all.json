@@ -2,17 +2,17 @@
   "seed": 1337,
   "exp_base": "./exps",
   "exp_name": "office",
-  "exp_id": "dslr->amazon",
+  "exp_id": "webcam->dslr",
   "agent": "FixCLAgent",
   "data_params": {
     "name": "office",
-    "source": "dslr",
-    "target": "amazon",
+    "source": "webcam",
+    "target": "dslr",
     "fewshot": "",
     "aug": "aug_0"
   },
   "num_epochs": 500,
-  "steps_epoch": null,
+  "steps_epoch": 100,
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
@@ -24,13 +24,11 @@
     "cls_update": true
   },
   "model_params": {
-    "mlp": false,
-    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
-    "load_weight_thres": 50,
-    "load_weight_epoch": 3
+    "load_weight_thres": 10,
+    "load_weight_epoch": 0
   },
   "loss_params": {
     "thres_src": 0.99,
@@ -39,7 +37,7 @@
     "loss": [
       "cls-so",
       "proto-each",
-      "I2M-cross",
+      "I2C-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",
