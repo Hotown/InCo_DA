@@ -16,7 +16,7 @@
     "optim_params": {
         "learning_rate": 0.01,
         "conv_lr_ratio": 0.1,
-        "patience": 4,
+        "patience": 10,
         "batch_size_lbd": 64,
         "batch_size": 64,
         "decay": true,
@@ -24,44 +24,33 @@
         "cls_update": true
     },
     "model_params": {
+        "mlp": false,
+        "mix": true,
         "out_dim": 512,
         "version": "pretrain-resnet50",
         "load_weight": "src-tgt",
-        "load_weight_thres": 5,
-        "load_weight_epoch": 1
-    },
-    "loss_params": {
+        "load_weight_thres": 50,
+        "load_weight_epoch": 3
+      },
+      "loss_params": {
         "thres_src": 0.99,
         "thres_tgt": 0.99,
         "temp": 0.1,
         "loss": [
-            "cls-so",
-            "proto-each",
-            "I2C-cross",
-            "semi-condentmax",
-            "semi-entmin",
-            "tgt-condentmax",
-            "tgt-entmin"
+          "cls-so",
+          "proto-each",
+          "I2M-cross",
+          "semi-condentmax",
+          "semi-entmin",
+          "tgt-condentmax",
+          "tgt-entmin"
         ],
-        "weight": [
-            1,
-            1,
-            1,
-            0.5,
-            0.05,
-            0.5,
-            0.05
-        ],
+        "weight": [1, 1, 1, 0.05, 0.05, 0.05, 0.05],
         "clus": {
-            "kmeans_freq": 1,
-            "type": [
-                "each"
-            ],
-            "n_k": 15,
-            "k": [
-                31,
-                62
-            ]
+          "kmeans_freq": 1,
+          "type": ["each"],
+          "n_k": 15,
+          "k": [31, 62]
         }
-    }
+      }
 }

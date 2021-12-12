@@ -34,7 +34,7 @@ ls_abbr = {
 }
 
 
-class FixCLAgent(BaseAgent):
+class FixCL2Agent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -45,7 +45,7 @@ class FixCLAgent(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(FixCLAgent, self).__init__(config)
+        super(FixCL2Agent, self).__init__(config)
 
         # for MIM
         self.momentum_softmax_target = torchutils.MomentumSoftmax(
@@ -375,15 +375,22 @@ class FixCLAgent(BaseAgent):
         if self.fewshot:
             fewshot_index = torch.tensor(self.fewshot_index_source).cuda()
         
-        # Mix: init target labels
+        # TODO: Target - init target labels & target prototype
         if self.config.model_params.mix:
             k = self.num_class
             memory_bank_instance_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
+            memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
             target_labels, target_cluster_centroids, target_cluster_phi = torch_kmeans(
                 k_list=[k],
                 data=memory_bank_instance_target,
                 init_centroids=self.get_attr("source", "memory_bank_proto").as_tensor(),
                 seed=self.current_epoch + self.current_iteration)
+            tar_proto = memory_bank_proto_target.as_tensor()
+            if self.current_epoch < 2:
+                new_tar_proto = target_cluster_centroids[0]
+            else:
+                new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0])
+            memory_bank_proto_target.update(torch.range(0, self.num_class - 1, dtype=torch.long).cuda(), new_tar_proto)
 
         tqdm_batch = tqdm(
             total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
@@ -433,9 +440,21 @@ class FixCLAgent(BaseAgent):
                     indices_lbd = indices_lbd.cuda()
                     images_lbd = images_lbd.cuda()
                     labels_lbd = labels_lbd.cuda()
-                    feat_lbd = self.model(images_lbd)
+                    feat_lbd = self.model(images_lbd) 
                     feat_lbd = F.normalize(feat_lbd, dim=1)
                     out_lbd = self.cls_head(feat_lbd)
+                    # TODO: Source - update prototype
+                    for idx in range(self.num_class):
+                        if len(labels_lbd == idx) == 0:
+                            continue
+                        tmp_proto = feat_lbd[labels_lbd == idx].mean(0)
+                        idx = torch.ones(1, dtype=torch.int64) * idx
+                        idx = idx.cuda()
+                        memory_bank_proto_source = self.get_attr(domain_name, "memory_bank_proto")
+                        old_proto = memory_bank_proto_source.at_idx(idx)
+                        update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
+                        memory_bank_proto_source.update(idx, update_proto)
+                    
 
                 # Matching & ssl
                 if (self.tgt and domain_name == "target") or self.ssl:
@@ -444,7 +463,7 @@ class FixCLAgent(BaseAgent):
                     )
 
                     indices_unl, images_unl, _ = next(loader_iter)
-                    if self.config.model_params.mix and domain_name == "target":
+                    if domain_name == "target":
                         labels_unl = target_labels.squeeze()[indices_unl]
                     images_unl = images_unl.cuda()
                     indices_unl = indices_unl.cuda()
@@ -452,24 +471,45 @@ class FixCLAgent(BaseAgent):
                     feat_unl = F.normalize(feat_unl, dim=1)
                     out_unl = self.cls_head(feat_unl)
 
-                # Update mix proto
-                if self.config.model_params.mix and domain_name == "target":
+                if domain_name == "target":
+                    # TODO: Target - update target prototype
                     for idx in range(self.num_class):
-                        if (len(feat_lbd[labels_lbd == idx]) == 0) or (len(feat_unl[labels_unl == idx]) == 0):
+                        if len(labels_unl == idx) == 0:
                             continue
-                        # new_proto = torch.cat(
-                        #     (feat_lbd[labels_lbd == idx],
-                        #     feat_unl[labels_unl == idx]
-                        # )).mean(0)
-                        new_proto = (feat_lbd[labels_lbd == idx].mean(0) + feat_unl[labels_unl == idx].mean(0)).mean(0)
+                        tmp_proto = feat_unl[labels_unl == idx].mean(0)
                         idx = torch.ones(1, dtype=torch.int64) * idx
                         idx = idx.cuda()
-                        memory_bank_proto_mix = self.get_attr("mix", "memory_bank_proto")
-                        old_proto = memory_bank_proto_mix.at_idxs(idx.cuda())
-                        new_proto = new_proto.view(1, -1)
-                        update_proto = update_data_memory(old_proto, new_proto)
-                        memory_bank_proto_mix.update(idx, update_proto)
-                        self.loss_fn.module.set_broadcast("mix", "memory_bank_proto", memory_bank_proto_mix.as_tensor())
+                        memory_bank_proto_target = self.get_attr(domain_name, "memory_bank_proto")
+                        old_proto = memory_bank_proto_target.at_idx(idx)
+                        update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
+                        memory_bank_proto_target.update(idx, update_proto)
+
+                        # new_proto = (feat_lbd[labels_lbd == idx].mean(0) + feat_unl[labels_unl == idx].mean(0)).mean(0)
+                        # idx = torch.ones(1, dtype=torch.int64) * idx
+                        # idx = idx.cuda()
+                        # memory_bank_proto_mix = self.get_attr("mix", "memory_bank_proto")
+                        # old_proto = memory_bank_proto_mix.at_idxs(idx.cuda())
+                        # new_proto = new_proto.view(1, -1)
+                        # update_proto = update_data_memory(old_proto, new_proto)
+                        # memory_bank_proto_mix.update(idx, update_proto)
+                        # self.loss_fn.module.set_broadcast("mix", "memory_bank_proto", memory_bank_proto_mix.as_tensor())
+                domain_m_dict = {
+                    "source": 0.9,
+                    "target": 0.1
+                }
+                # TODO: Mix - update mix proto
+                for idx in range(self.num_class):
+                    idx = torch.ones(1, dtype=torch.int64) * idx
+                    idx = idx.cuda()
+                    memory_bank_proto_source = self.get_attr("source", "memory_bank_proto").at_idx(idx)
+                    memory_bank_proto_target = self.get_attr("target", "memory_bank_proto").at_idx(idx)
+                    memory_bank_mix = self.get_attr(domain_name, "memory_bank_mix")
+                    update_mix = domain_m_dict[domain_name] * memory_bank_proto_source + (1 - domain_m_dict[domain_name]) * memory_bank_proto_target
+                    update_mix = F.normalize(update_mix, dim=1)
+                    memory_bank_mix.udpate(idx, update_mix)
+                    
+                        
+
 
                 # Semi Supervised
                 # if self.semi and domain_name == "source":
@@ -929,21 +969,22 @@ class FixCLAgent(BaseAgent):
     @torch.no_grad()
     def _init_memory_bank(self):
         out_dim = self.config.model_params.out_dim
-        memory_bank_mix = MemoryBank(self.num_class, out_dim)
-        self.set_attr("mix", "memory_bank_proto", memory_bank_mix)
-        self.loss_fn.module.set_broadcast(
-            "mix", "memory_bank_proto", memory_bank_mix.as_tensor()
-        )
+        # memory_bank_mix = MemoryBank(self.num_class, out_dim)
+        # self.set_attr("mix", "memory_bank_proto", memory_bank_mix)
+        # self.loss_fn.module.set_broadcast(
+        #     "mix", "memory_bank_proto", memory_bank_mix.as_tensor()
+        # )
         for domain_name in ("source", "target"):
             data_len = self.get_attr(domain_name, "train_len")
             memory_bank = MemoryBank(data_len, out_dim)
+            memory_bank_mix = MemoryBank(self.num_class, out_dim)
             memory_bank_proto = MemoryBank(self.num_class, out_dim)
             if self.config.model_params.load_memory_bank:
                 self.compute_train_features()
                 idx = self.get_attr(domain_name, "train_indices")
                 feat = self.get_attr(domain_name, "train_features")
                 memory_bank.update(idx, feat)
-                # init source proto memorybank
+                # TODO: Source - init source prototype
                 if domain_name == "source" and self.config.model_params.mix:
                     labels = self.get_attr(domain_name, "train_ordered_labels")[idx]
                     for idx in range(self.num_class):
@@ -951,7 +992,8 @@ class FixCLAgent(BaseAgent):
                         idx = idx.cuda()
                         old_proto = memory_bank_proto.at_idxs(idx)
                         new_proto = feat[labels == idx].mean(0).view(1,-1)
-                        update_proto = update_data_memory(old_proto, new_proto)
+                        # update_proto = update_data_memory(old_proto, new_proto)
+                        update_proto = new_proto
                         memory_bank.update(idx, update_proto)
                 # self.logger.info(
                 #     f"Initialize memorybank-{domain_name} with pretrained output features"
@@ -960,12 +1002,14 @@ class FixCLAgent(BaseAgent):
                 if self.config.data_params.name in ["visda17", "domainnet"]:
                     delattr(self, f"train_indices_{domain_name}")
                     delattr(self, f"train_features_{domain_name}")
-            if domain_name == "source" and self.config.model_params.mix:
+            if self.config.model_params.mix:
                 self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
                 self.loss_fn.module.set_broadcast(
                     domain_name, "memory_bank_proto", memory_bank_proto.as_tensor()
                 )
             self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
+            # TODO: Mix - init mix prototype
+            self.set_attr(domain_name, "memory_bank_mix", memory_bank_mix)
             # self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
             self.loss_fn.module.set_attr(domain_name, "data_len", data_len)
             self.loss_fn.module.set_broadcast(

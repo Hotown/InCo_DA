@@ -371,7 +371,7 @@ def loss_info(feat, mb_feat, label, t=0.1):
 
 
 @torch.no_grad()
-def update_data_memory(data_memory, outputs, m=0.9):
+def update_data_memory(data_memory, outputs, m=0.5):
     outputs = F.normalize(outputs, dim=1)
     new_data_memory = data_memory * m + (1 - m) * outputs
     return F.normalize(new_data_memory, dim=1)

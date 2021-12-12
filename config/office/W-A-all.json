@@ -16,7 +16,7 @@
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
-    "patience": 4,
+    "patience": 10,
     "batch_size_lbd": 64,
     "batch_size": 64,
     "decay": true,
@@ -24,6 +24,8 @@
     "cls_update": true
   },
   "model_params": {
+    "mlp": true,
+    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
@@ -37,7 +39,7 @@
     "loss": [
       "cls-so",
       "proto-each",
-      "I2C-cross",
+      "I2M-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",
