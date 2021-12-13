@@ -3,7 +3,7 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "dslr->amazon",
-  "agent": "FixCLAgent",
+  "agent": "FixCL2Agent",
   "data_params": {
     "name": "office",
     "source": "dslr",
@@ -19,13 +19,14 @@
     "patience": 8,
     "batch_size_lbd": 64,
     "batch_size": 64,
-    "decay": true,
+    "decay": false,
     "weight_decay": 5e-4,
     "cls_update": true
   },
   "model_params": {
+    "m": 0.9,
     "mlp": false,
-    "mix": false,
+    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
@@ -39,7 +40,7 @@
     "loss": [
       "cls-so",
       "proto-each",
-      "I2C-cross",
+      "I2M-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",

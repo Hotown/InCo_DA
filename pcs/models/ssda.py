@@ -81,6 +81,16 @@ class SSDALossModule(torch.nn.Module):
         new_data_memory = data_memory * m + (1 - m) * outputs
         return F.normalize(new_data_memory, dim=1)
 
+    # @torch.no_grad()
+    # def updated_new_proto_memory(self, domain, indices, outputs):
+    #     """Compute new mix prototype memory by momentum
+
+    #     """
+    #     memory_bank_mix = self.get_attr(domain, "memory_bank_mix")
+    #     data_memory = torch.index_select(memory_bank_mix, 0, indices)
+    #     outputs = F.normalize(outputs, dim=1)
+    #     m = self.m
+    #     new_data_memory = data_memory
     def _get_Z(self, domain, vec, t):
         """Get denominator in ID
 
@@ -110,7 +120,7 @@ class SSDALossModule(torch.nn.Module):
         return torch.matmul(vec, torch.transpose(bank, 1, 0))
 
     def _compute_I2M_loss(self, domain, loss_type, t=0.05):
-        """Loss Instance 2 Mix domain
+        """Loss Instance to Mix domain
         """
         assert loss_type in ["cross", "tgt", "src"]
         loss = torch.Tensor([0]).cuda()
@@ -118,10 +128,10 @@ class SSDALossModule(torch.nn.Module):
             loss_type == "src" and domain == "target"
         ):
             return loss
-        
+        memory_bank_mix  = self.get_attr(reverse_domain(domain), "memory_bank_mix")
         outputs = self.outputs
 
-        p = torchutils.contrastive_sim(outputs, self.get_attr("mix", "memory_bank_proto"), tao=t)
+        p = torchutils.contrastive_sim(outputs, memory_bank_mix, tao=t)
         z = torch.sum(p, dim=-1)
         p = p / z.unsqueeze(1)
         mix_loss = -torch.sum(p * torch.log(p)) / self.batch_size
@@ -258,7 +268,7 @@ class SSDALossModule(torch.nn.Module):
         # double sum
         loss = -torch.sum(p * torch.log(p)) / self.batch_size
         return loss[None,], aux
-
+    
     def _compute_ID_loss(self, domain, loss_type, t=0.05):
         """Loss ID (Instance Discrimination), not used in essay.
 
@@ -371,7 +381,7 @@ def loss_info(feat, mb_feat, label, t=0.1):
 
 
 @torch.no_grad()
-def update_data_memory(data_memory, outputs, m=0.5):
+def update_data_memory(data_memory, outputs, m=0.9):
     outputs = F.normalize(outputs, dim=1)
     new_data_memory = data_memory * m + (1 - m) * outputs
     return F.normalize(new_data_memory, dim=1)

@@ -78,9 +78,9 @@ def pairwise_distance_2(input_1, input_2):
 def weights_init(model):
     for layer in model.modules():
         if isinstance(layer, torch.nn.Conv2d):
-            torch.nn.init.kaiming_normal_(
-                layer.weight, mode="fan_out", nonlinearity="relu"
-            )
+            torch.nn.init.kaiming_normal_(layer.weight,
+                                          mode="fan_out",
+                                          nonlinearity="relu")
             if layer.bias is not None:
                 torch.nn.init.constant_(layer.bias, val=0.0)
         elif isinstance(layer, torch.nn.BatchNorm2d):
@@ -143,7 +143,12 @@ def pseudo_mask(x, thres=0.95):
     return mask
 
 
-def pseudo_label_loss(x, thres=0.95, aux=True, y=None, mask=None, num_class=10):
+def pseudo_label_loss(x,
+                      thres=0.95,
+                      aux=True,
+                      y=None,
+                      mask=None,
+                      num_class=10):
     if mask is None:
         mask = [True] * len(x)
         mask = torch.tensor(mask)
@@ -166,9 +171,8 @@ def pseudo_label_loss(x, thres=0.95, aux=True, y=None, mask=None, num_class=10):
         for i in range(num_class):
             num_select_per_class[i] += (pred_thres == i).sum().item()
             if y is not None:
-                num_correct_per_class[i] += (
-                    ((pred_thres == i) & (pred_thres.eq(y[mask]))).sum().item()
-                )
+                num_correct_per_class[i] += ((
+                    (pred_thres == i) & (pred_thres.eq(y[mask]))).sum().item())
 
         if y is not None:
             num_correct = pred_thres.eq(y[mask]).sum().item()
@@ -192,7 +196,7 @@ def pseudo_label_loss(x, thres=0.95, aux=True, y=None, mask=None, num_class=10):
 
 def lr_scheduler_invLR(optimizer, gamma=0.0001, power=0.75):
     def lmbda(iter):
-        return (1 + gamma * iter) ** (-power)
+        return (1 + gamma * iter)**(-power)
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lmbda)
 
@@ -204,13 +208,17 @@ def get_lr(optimizer, g_id=0):
 # utils
 
 
-def copy_checkpoint(
-    folder="./", filename="checkpoint.pth.tar", copyname="copy.pth.tar"
-):
-    shutil.copyfile(os.path.join(folder, filename), os.path.join(folder, copyname))
+def copy_checkpoint(folder="./",
+                    filename="checkpoint.pth.tar",
+                    copyname="copy.pth.tar"):
+    shutil.copyfile(os.path.join(folder, filename),
+                    os.path.join(folder, copyname))
 
 
-def save_checkpoint(state, is_best=False, folder="./", filename="checkpoint.pth.tar"):
+def save_checkpoint(state,
+                    is_best=False,
+                    folder="./",
+                    filename="checkpoint.pth.tar"):
     if not os.path.isdir(folder):
         os.mkdir(folder)
     torch.save(state, os.path.join(folder, filename))
@@ -220,7 +228,10 @@ def save_checkpoint(state, is_best=False, folder="./", filename="checkpoint.pth.
 
 def load_state_dict(model, model_dict):
     model_dict = model.state_dict()
-    updated_dict = {k: v for k, v in model_dict.items() if k in model_dict.keys()}
+    updated_dict = {
+        k: v
+        for k, v in model_dict.items() if k in model_dict.keys()
+    }
     model_dict.update(updated_dict)
     model.load_state_dict(model_dict)
     return len(updated_dict.keys())
@@ -238,13 +249,11 @@ def print_cuda_statistics(nvidia_smi=True, output=print):
 
     if nvidia_smi:
         print("nvidia-smi:")
-        call(
-            [
-                "nvidia-smi",
-                "--format=csv",
-                "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free",
-            ]
-        )
+        call([
+            "nvidia-smi",
+            "--format=csv",
+            "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free",
+        ])
 
 
 def log_tensor(t, name="", print_tensor=False):
@@ -295,9 +304,8 @@ class MomentumSoftmax:
         self.num = m
 
     def update(self, mean_softmax, num=1):
-        self.softmax_vector = (
-            (self.softmax_vector * self.num) + mean_softmax * num
-        ) / (self.num + num)
+        self.softmax_vector = ((self.softmax_vector * self.num) +
+                               mean_softmax * num) / (self.num + num)
         self.num += num
 
     def reset(self):

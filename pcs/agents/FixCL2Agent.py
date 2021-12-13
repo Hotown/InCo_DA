@@ -390,7 +390,7 @@ class FixCL2Agent(BaseAgent):
                 new_tar_proto = target_cluster_centroids[0]
             else:
                 new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0])
-            memory_bank_proto_target.update(torch.range(0, self.num_class - 1, dtype=torch.long).cuda(), new_tar_proto)
+            memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
 
         tqdm_batch = tqdm(
             total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
@@ -445,13 +445,13 @@ class FixCL2Agent(BaseAgent):
                     out_lbd = self.cls_head(feat_lbd)
                     # TODO: Source - update prototype
                     for idx in range(self.num_class):
-                        if len(labels_lbd == idx) == 0:
+                        if len(feat_lbd[labels_lbd == idx]) == 0:
                             continue
                         tmp_proto = feat_lbd[labels_lbd == idx].mean(0)
                         idx = torch.ones(1, dtype=torch.int64) * idx
                         idx = idx.cuda()
                         memory_bank_proto_source = self.get_attr(domain_name, "memory_bank_proto")
-                        old_proto = memory_bank_proto_source.at_idx(idx)
+                        old_proto = memory_bank_proto_source.at_idxs(idx)
                         update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
                         memory_bank_proto_source.update(idx, update_proto)
                     
@@ -474,13 +474,13 @@ class FixCL2Agent(BaseAgent):
                 if domain_name == "target":
                     # TODO: Target - update target prototype
                     for idx in range(self.num_class):
-                        if len(labels_unl == idx) == 0:
+                        if len(feat_unl[labels_unl == idx]) == 0:
                             continue
                         tmp_proto = feat_unl[labels_unl == idx].mean(0)
                         idx = torch.ones(1, dtype=torch.int64) * idx
                         idx = idx.cuda()
                         memory_bank_proto_target = self.get_attr(domain_name, "memory_bank_proto")
-                        old_proto = memory_bank_proto_target.at_idx(idx)
+                        old_proto = memory_bank_proto_target.at_idxs(idx)
                         update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
                         memory_bank_proto_target.update(idx, update_proto)
 
@@ -501,15 +501,13 @@ class FixCL2Agent(BaseAgent):
                 for idx in range(self.num_class):
                     idx = torch.ones(1, dtype=torch.int64) * idx
                     idx = idx.cuda()
-                    memory_bank_proto_source = self.get_attr("source", "memory_bank_proto").at_idx(idx)
-                    memory_bank_proto_target = self.get_attr("target", "memory_bank_proto").at_idx(idx)
+                    proto_source = self.get_attr("source", "memory_bank_proto").at_idxs(idx)
+                    proto_target = self.get_attr("target", "memory_bank_proto").at_idxs(idx)
+                    update_mix = domain_m_dict[domain_name] * proto_source + (1 - domain_m_dict[domain_name]) * proto_target
                     memory_bank_mix = self.get_attr(domain_name, "memory_bank_mix")
-                    update_mix = domain_m_dict[domain_name] * memory_bank_proto_source + (1 - domain_m_dict[domain_name]) * memory_bank_proto_target
                     update_mix = F.normalize(update_mix, dim=1)
-                    memory_bank_mix.udpate(idx, update_mix)
-                    
-                        
-
+                    memory_bank_mix.update(idx, update_mix)
+                    self.loss_fn.module.set_broadcast(domain_name, "memory_bank_mix", memory_bank_mix.as_tensor())
 
                 # Semi Supervised
                 # if self.semi and domain_name == "source":
@@ -988,6 +986,8 @@ class FixCL2Agent(BaseAgent):
                 if domain_name == "source" and self.config.model_params.mix:
                     labels = self.get_attr(domain_name, "train_ordered_labels")[idx]
                     for idx in range(self.num_class):
+                        if len(feat[labels == idx]) == 0:
+                            continue
                         idx = torch.ones(1, dtype=torch.int64) * idx
                         idx = idx.cuda()
                         old_proto = memory_bank_proto.at_idxs(idx)
@@ -1010,6 +1010,7 @@ class FixCL2Agent(BaseAgent):
             self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
             # TODO: Mix - init mix prototype
             self.set_attr(domain_name, "memory_bank_mix", memory_bank_mix)
+            self.loss_fn.module.set_broadcast(domain_name, "memory_bank_mix", memory_bank_mix.as_tensor())
             # self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
             self.loss_fn.module.set_attr(domain_name, "data_len", data_len)
             self.loss_fn.module.set_broadcast(

@@ -153,8 +153,8 @@ class BaseAgent(object):
             # adjust
             for sch in self.lr_scheduler_list:
                 sch.step()
-            # save
-            self.save_checkpoint()
+            # TODO: save checkpoint
+            # self.save_checkpoint()
 
     def train_one_epoch(self):
         """
@@ -175,7 +175,8 @@ class BaseAgent(object):
         Backs up the model upon interrupt
         """
         self.summary_writer.close()
-        self.save_checkpoint(filename="backup.pth.tar")
+        # TODO: checkpoint
+        # self.save_checkpoint(filename="backup.pth.tar")
 
     def finalise(self):
         """
