@@ -16,15 +16,16 @@
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
-    "patience": 10,
+    "patience": 8,
     "batch_size_lbd": 64,
     "batch_size": 64,
-    "decay": true,
+    "decay": false,
     "weight_decay": 5e-4,
     "cls_update": true
   },
   "model_params": {
-    "mlp": true,
+    "m": 0.9,
+    "mlp": false,
     "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",

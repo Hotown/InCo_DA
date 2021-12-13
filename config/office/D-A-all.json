@@ -1,5 +1,5 @@
 {
-  "seed": 1337,
+  "seed": 42,
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "dslr->amazon",
