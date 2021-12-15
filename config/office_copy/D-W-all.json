@@ -1,13 +1,13 @@
 {
-  "seed": 1337,
+  "seed": 42,
   "exp_base": "./exps",
   "exp_name": "office",
-  "exp_id": "webcam->amazon",
+  "exp_id": "dslr->webcam",
   "agent": "FixCL2Agent",
   "data_params": {
     "name": "office",
-    "source": "webcam",
-    "target": "amazon",
+    "source": "dslr",
+    "target": "webcam",
     "fewshot": "",
     "aug": "aug_0"
   },
@@ -16,7 +16,7 @@
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
-    "patience": 8,
+    "patience": 10,
     "batch_size_lbd": 64,
     "batch_size": 64,
     "decay": false,
@@ -39,13 +39,14 @@
     "temp": 0.1,
     "loss": [
       "cls-so",
+      "proto-each",
       "I2M-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 0.05, 0.05, 0.05, 0.05],
+    "weight": [1, 1, 1, 0.05, 0.05, 0.05, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],

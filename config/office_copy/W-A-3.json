@@ -3,12 +3,12 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "webcam->amazon",
-  "agent": "FixCL2Agent",
+  "agent": "CDSAgent",
   "data_params": {
     "name": "office",
     "source": "webcam",
     "target": "amazon",
-    "fewshot": "",
+    "fewshot": "3",
     "aug": "aug_0"
   },
   "num_epochs": 500,
@@ -16,17 +16,14 @@
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
-    "patience": 8,
+    "patience": 4,
     "batch_size_lbd": 64,
     "batch_size": 64,
-    "decay": false,
+    "decay": true,
     "weight_decay": 5e-4,
     "cls_update": true
   },
   "model_params": {
-    "m": 0.9,
-    "mlp": false,
-    "mix": true,
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
@@ -39,13 +36,14 @@
     "temp": 0.1,
     "loss": [
       "cls-so",
-      "I2M-cross",
+      "proto-each",
+      "I2C-cross",
       "semi-condentmax",
       "semi-entmin",
       "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 0.05, 0.05, 0.05, 0.05],
+    "weight": [1, 1, 1, 0.05, 0.05, 0.05, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],

@@ -297,7 +297,7 @@ class FixCL2Agent(BaseAgent):
         momentum = self.config.optim_params.momentum
         weight_decay = self.config.optim_params.weight_decay
         conv_lr_ratio = self.config.optim_params.conv_lr_ratio
-
+        
         parameters = []
         # batch_norm layer: no weight_decay
         params_bn, _ = torchutils.split_params_by_name(self.model, "bn")
@@ -483,19 +483,10 @@ class FixCL2Agent(BaseAgent):
                         old_proto = memory_bank_proto_target.at_idxs(idx)
                         update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
                         memory_bank_proto_target.update(idx, update_proto)
-
-                        # new_proto = (feat_lbd[labels_lbd == idx].mean(0) + feat_unl[labels_unl == idx].mean(0)).mean(0)
-                        # idx = torch.ones(1, dtype=torch.int64) * idx
-                        # idx = idx.cuda()
-                        # memory_bank_proto_mix = self.get_attr("mix", "memory_bank_proto")
-                        # old_proto = memory_bank_proto_mix.at_idxs(idx.cuda())
-                        # new_proto = new_proto.view(1, -1)
-                        # update_proto = update_data_memory(old_proto, new_proto)
-                        # memory_bank_proto_mix.update(idx, update_proto)
-                        # self.loss_fn.module.set_broadcast("mix", "memory_bank_proto", memory_bank_proto_mix.as_tensor())
+                        
                 domain_m_dict = {
-                    "source": 0.9,
-                    "target": 0.1
+                    "source": 0.8,
+                    "target": 0.2
                 }
                 # TODO: Mix - update mix proto
                 for idx in range(self.num_class):

@@ -39,7 +39,6 @@
     "temp": 0.1,
     "loss": [
       "cls-so",
-      "proto-each",
       "I2M-cross",
       "semi-condentmax",
       "semi-entmin",
@@ -47,7 +46,6 @@
       "tgt-entmin"
     ],
     "weight": [
-      1,
       1,
       1,
       0.05,
