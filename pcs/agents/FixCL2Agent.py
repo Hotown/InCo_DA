@@ -31,6 +31,7 @@ ls_abbr = {
     "tgt-entmin": "tE",
     "ID-each": "I",
     "CD-cross": "CD",
+    "proto-fix": "Pf",
 }
 
 

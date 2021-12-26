@@ -120,7 +120,7 @@ class SSDALossModule(torch.nn.Module):
         return torch.matmul(vec, torch.transpose(bank, 1, 0))
 
     def _compute_I2M_loss(self, domain, loss_type, t=0.05):
-        """Loss Instance to Mix domain
+        """Loss Instance with Mix domain
         """
         assert loss_type in ["cross", "tgt", "src"]
         loss = torch.Tensor([0]).cuda()
@@ -138,7 +138,7 @@ class SSDALossModule(torch.nn.Module):
         loss += mix_loss
 
         return loss
-
+    
     def _compute_I2C_loss(self, domain, loss_type, t=0.05):
         """Loss CrossSelf in essay (Cross-domain Instance-Prototype SSL)
 

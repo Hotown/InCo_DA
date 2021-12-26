@@ -11,12 +11,12 @@
     "fewshot": "",
     "aug": "aug_0"
   },
-  "num_epochs": 500,
+  "num_epochs": 20,
   "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
-    "patience": 8,
+    "patience": 0,
     "batch_size_lbd": 64,
     "batch_size": 64,
     "decay": false,
