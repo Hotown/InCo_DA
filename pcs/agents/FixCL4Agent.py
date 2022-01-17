@@ -710,9 +710,8 @@ class DEVAgent(BaseAgent):
                 feat = self.get_attr(domain_name, "train_features")
                 memory_bank.update(idx, feat)
                 # TODO: Source - init source prototype
-                if self.config.model_params.mix:
+                if domain_name == "source" and self.config.model_params.mix:
                     labels = self.get_attr(domain_name, "train_ordered_labels")[idx]
-                    # labels = self.get_attr(domain_name, "train_labels")
                     for idx in range(self.num_class):
                         if len(feat[labels == idx]) == 0:
                             continue

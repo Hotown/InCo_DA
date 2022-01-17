@@ -29,7 +29,7 @@ class FixCL(ClassifierBase):
         
         head = nn.Sequential(
             nn.Linear(backbone.out_features, head_dim),
-            nn.BatchNorm1d(head_dim),
+            # nn.BatchNorm1d(head_dim),
             nn.ReLU(),
             nn.Linear(head_dim, num_classes)
         )
