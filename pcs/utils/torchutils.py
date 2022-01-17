@@ -4,7 +4,7 @@ import random
 import shutil
 import sys
 from subprocess import call
-
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -200,6 +200,11 @@ def lr_scheduler_invLR(optimizer, gamma=0.0001, power=0.75):
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lmbda)
 
+def lr_scheduler_cosLR(optimizer, total):
+    def lmbda(epoch):
+        return 0.5 * (1. + math.cos(math.pi * epoch / total))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lmbda)
 
 def get_lr(optimizer, g_id=0):
     return optimizer.param_groups[g_id]["lr"]
