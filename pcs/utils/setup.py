@@ -92,16 +92,21 @@ def process_config(config_json, override_dotmap=None):
                 % (exp_dir, exp_dir)
             )
         else:
-            if config.exp_id is None:
-                config.exp_id = datetime.datetime.now().strftime("%Y-%m-%d")
+            # TODO: exp_id
+            config.exp_id += "-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
             exp_dir = os.path.join(
-                exp_base, "experiments", config.exp_name, config.exp_id
+                 exp_base, "experiments", config.exp_name, config.exp_id
             )
-            if os.path.exists(exp_dir):
-                config.exp_id += "-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
-                exp_dir = os.path.join(
-                    exp_base, "experiments", config.exp_name, config.exp_id
-                )
+            # if config.exp_id is None:
+            #     config.exp_id = datetime.datetime.now().strftime("%Y-%m-%d")
+            # exp_dir = os.path.join(
+            #     exp_base, "experiments", config.exp_name, config.exp_id
+            # )
+            # if os.path.exists(exp_dir):
+            #     config.exp_id += "-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
+            #     exp_dir = os.path.join(
+            #         exp_base, "experiments", config.exp_name, config.exp_id
+            #     )
 
     # create some important directories to be used for the experiment.
     config.summary_dir = os.path.join(exp_dir, "summaries/")

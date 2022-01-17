@@ -1,9 +1,9 @@
 {
-  "seed": 1337,
+  "seed": 42,
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "webcam->dslr",
-  "agent": "FixCL2Agent",
+  "agent": "DEVAgent",
   "data_params": {
     "name": "office",
     "source": "webcam",
@@ -30,8 +30,8 @@
     "out_dim": 512,
     "version": "pretrain-resnet50",
     "load_weight": "src-tgt",
-    "load_weight_thres": 50,
-    "load_weight_epoch": 3
+    "load_weight_thres": 10,
+    "load_weight_epoch": 0
   },
   "loss_params": {
     "thres_src": 0.99,
@@ -39,13 +39,12 @@
     "temp": 0.1,
     "loss": [
       "cls-so",
+      "proto-each",
       "I2M-cross",
-      "semi-condentmax",
-      "semi-entmin",
       "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 0.05, 0.05, 0.05, 0.05],
+    "weight": [1, 1, 1, 0.05, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],

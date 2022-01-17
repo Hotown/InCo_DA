@@ -8,6 +8,38 @@ import torch.nn.functional as F
 import torchvision
 from utils import reverse_domain, torchutils
 
+class Entropy(nn.Module):
+    def __init__(self):
+        super(Entropy, self).__init__()
+    
+    def forward(self, input: torch.Tensor, mean=True) -> torch.Tensor:
+        p = F.softmax(input, dim=1)
+        en = -torch.sum(p * torch.log(p + 1e-5), dim=1)
+        if mean:
+            return torch.mean(en)
+        else:
+            return en
+        
+
+class CrossEntropyLabelSmooth(nn.Module):
+    def __init__(self, num_classes, epsilon=0.1, use_gpu=True, size_average=True):
+        super(CrossEntropyLabelSmooth, self).__init__()
+        self.num_classes = num_classes
+        self.epsilon = epsilon
+        self.use_gpu = use_gpu
+        self.size_average = size_average
+        self.logsoftmax = nn.LogSoftmax(dim=1)
+
+    def forward(self, inputs, targets):
+        log_probs = self.logsoftmax(inputs)
+        targets = torch.zeros(log_probs.size()).scatter_(1, targets.unsqueeze(1).cpu(), 1)
+        if self.use_gpu: targets = targets.cuda()
+        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
+        if self.size_average:
+            loss = (- targets * log_probs).mean(0).sum()
+        else:
+            loss = (- targets * log_probs).sum(1)
+        return loss
 
 class SSDALossModule(torch.nn.Module):
     def __init__(self, config, gpu_devices):
@@ -180,12 +212,6 @@ class SSDALossModule(torch.nn.Module):
         return loss
 
     def _compute_proto_loss(self, domain, loss_type, t=0.05):
-        """Loss PC in essay (part of In-domain Prototypical Contrastive Learning)
-
-        Args:
-            domain (str): 'source', 'target'
-            loss_type (str, optional): 'each', 'all', 'src', 'tgt'. Defaults to "zero".
-        """
         loss = torch.Tensor([0]).cuda()
         if (loss_type.startswith("src") and domain == "target") or (
             loss_type.startswith("tgt") and domain == "source"
@@ -193,51 +219,89 @@ class SSDALossModule(torch.nn.Module):
             return loss
 
         is_fix = "fix" in loss_type
-        clus = "each"
-        n_kmeans = self.config.loss_params.clus.n_kmeans
-        k_list = self.config.k_list
-        c_domain = domain
+        proto = self.get_attr(domain, "memory_bank_proto")
+        labels = self.get_attr(domain, "labels")
+        if domain == "target":
+            labels = labels.squeeze_(0)
+        batch_labels = labels[self.indices]
+        batch_proto = proto[batch_labels]
+        outputs = self.outputs
+        # calculate similarity
+        dot_exp = torch.exp(
+            torch.sum(outputs * batch_proto, dim=-1) / t
+        )
+        assert not torch.isnan(outputs).any()
+        assert not torch.isnan(proto).any()
+        assert not torch.isnan(dot_exp).any()
+        # calculate Z
+        # all_phi = t if is_fix else phis.unsqueeze(0).repeat(outputs.shape[0], 1)
+        z = torchutils.contrastive_sim_z(outputs, batch_proto, tao=t)
 
-        cluster_labels = self.get_attr(domain, f"cluster_labels_{clus}")
-        cluster_centroids = self.get_attr(c_domain, f"cluster_centroids_{clus}")
-        cluster_phi = self.get_attr(c_domain, f"cluster_phi_{clus}")
+        # calculate loss
+        p = dot_exp / z
 
-        for each_k_idx, k in enumerate(k_list):
-            # clus info
-            labels = cluster_labels[each_k_idx]
-            centroids = cluster_centroids[each_k_idx]
-            phis = cluster_phi[each_k_idx]
-
-            # batch info
-            batch_labels = labels[self.indices]
-            outputs = self.outputs
-            batch_centroids = centroids[batch_labels]
-            if loss_type == "fix":
-                batch_phis = t
-            else:
-                batch_phis = phis[batch_labels]
-
-            # calculate similarity
-            dot_exp = torch.exp(
-                torch.sum(outputs * batch_centroids, dim=-1) / batch_phis
-            )
-
-            assert not torch.isnan(outputs).any()
-            assert not torch.isnan(batch_centroids).any()
-            assert not torch.isnan(dot_exp).any()
-
-            # calculate Z
-            all_phi = t if is_fix else phis.unsqueeze(0).repeat(outputs.shape[0], 1)
-            z = torchutils.contrastive_sim_z(outputs, centroids, tao=all_phi)
-
-            # calculate loss
-            p = dot_exp / z
-
-            loss = loss - torch.sum(torch.log(p)) / p.size(0)
-
-        loss /= n_kmeans
+        loss = loss - torch.sum(torch.log(p)) / p.size(0)
 
         return loss
+    # def _compute_proto_loss(self, domain, loss_type, t=0.05):
+    #     """Loss PC in essay (part of In-domain Prototypical Contrastive Learning)
+
+    #     Args:
+    #         domain (str): 'source', 'target'
+    #         loss_type (str, optional): 'each', 'all', 'src', 'tgt'. Defaults to "zero".
+    #     """
+    #     loss = torch.Tensor([0]).cuda()
+    #     if (loss_type.startswith("src") and domain == "target") or (
+    #         loss_type.startswith("tgt") and domain == "source"
+    #     ):
+    #         return loss
+
+    #     is_fix = "fix" in loss_type
+    #     clus = "each"
+    #     n_kmeans = self.config.loss_params.clus.n_kmeans
+    #     k_list = self.config.k_list
+    #     c_domain = domain
+
+    #     cluster_labels = self.get_attr(domain, f"cluster_labels_{clus}")
+    #     cluster_centroids = self.get_attr(c_domain, f"cluster_centroids_{clus}")
+    #     cluster_phi = self.get_attr(c_domain, f"cluster_phi_{clus}")
+
+    #     for each_k_idx, k in enumerate(k_list):
+    #         # clus info
+    #         labels = cluster_labels[each_k_idx]
+    #         centroids = cluster_centroids[each_k_idx]
+    #         phis = cluster_phi[each_k_idx]
+
+    #         # batch info
+    #         batch_labels = labels[self.indices]
+    #         outputs = self.outputs
+    #         batch_centroids = centroids[batch_labels]
+    #         if loss_type == "fix":
+    #             batch_phis = t
+    #         else:
+    #             batch_phis = phis[batch_labels]
+
+    #         # calculate similarity
+    #         dot_exp = torch.exp(
+    #             torch.sum(outputs * batch_centroids, dim=-1) / batch_phis
+    #         )
+
+    #         assert not torch.isnan(outputs).any()
+    #         assert not torch.isnan(batch_centroids).any()
+    #         assert not torch.isnan(dot_exp).any()
+
+    #         # calculate Z
+    #         all_phi = t if is_fix else phis.unsqueeze(0).repeat(outputs.shape[0], 1)
+    #         z = torchutils.contrastive_sim_z(outputs, centroids, tao=all_phi)
+
+    #         # calculate loss
+    #         p = dot_exp / z
+
+    #         loss = loss - torch.sum(torch.log(p)) / p.size(0)
+
+    #     loss /= n_kmeans
+
+    #     return loss
 
     def _compute_CD_loss(self, domain, loss_type, t=0.05):
         """Loss CDS in essay arXiv:2003.08264v1, not used in essay

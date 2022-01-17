@@ -190,7 +190,7 @@ class BaseAgent(object):
         """
         if hasattr(self, "best_val_epoch"):
             self.logger.info(
-                f"Best Val acc at {self.best_val_epoch}: {self.best_val_metric:.3}"
+                f"Best Val acc at {self.best_val_epoch}: {self.best_val_metric:.4}"
             )
         endtime = datetime.datetime.now()
         exe_time = endtime - self.starttime

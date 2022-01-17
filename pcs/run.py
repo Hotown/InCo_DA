@@ -25,7 +25,7 @@ def adjust_config(config):
     # model_params
     set_default(config.model_params, "load_weight_epoch", value=0)
     set_default(config.model_params, "load_memory_bank", value=True)
-
+    set_default(config.model_params, "m", value=0.9)
     # loss_params
     num_loss = len(config.loss_params.loss)
     set_default(config.loss_params, "weight", value=[1] * num_loss)
@@ -34,8 +34,7 @@ def adjust_config(config):
     if not isinstance(config.loss_params.temp, list):
         config.loss_params.temp = [config.loss_params.temp] * num_loss
     assert len(config.loss_params.weight) == num_loss
-    set_default(config.loss_params, "m", value=0.5)
-    set_default(config.loss_params, "T", value=0.05)
+    set_default(config.loss_params, "T", value=0.1)
     set_default(config.loss_params, "pseudo", value=True)
 
     # optim_params

@@ -1,15 +1,21 @@
 import gc
 import json
+from logging import getLogger
 import os
 import random
 import shutil
 import string
 from collections import Counter, OrderedDict
-
+from subprocess import call
+from turtle import back
+import sys
 import numpy as np
 import torch
 from dotmap import DotMap
-
+import timm
+import torch.nn as nn
+sys.path.append('.')
+import common.vision.models as models
 # Specific
 
 DOMAIN_V = {"source": "target", "target": "source"}
@@ -68,8 +74,9 @@ def makedirs(dir_list):
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
-
-    def __init__(self):
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
         self.reset()
 
     def reset(self):
@@ -84,22 +91,28 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
 
 class ProgressMeter(object):
     def __init__(self, num_batches, meters, prefix=""):
         self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
         self.meters = meters
         self.prefix = prefix
+        self.logger = getLogger()
 
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
-        print("\t".join(entries))
+        # print('\t'.join(entries))
+        self.logger.info('\t'.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
-        fmt = "{:" + str(num_digits) + "d}"
-        return "[" + fmt + "/" + fmt.format(num_batches) + "]"
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
 class OrderedCounter(Counter, OrderedDict):
@@ -113,7 +126,6 @@ class OrderedCounter(Counter, OrderedDict):
 
 
 # Json
-
 
 def load_json(f_path):
     with open(f_path, "r") as f:
@@ -162,3 +174,25 @@ def set_default(cur_config, name, value=None, callback=None):
         else:
             raise NotImplementedError
     return cur_config[name]
+
+def get_model_names():
+    return sorted(
+        name for name in models.__dict__
+        if name.islower and not name.startswith('__')
+        and callable(models.__dict__[name])
+    ) + timm.list_models()
+
+def get_model(model_name, pretrain=True):
+    if model_name in models.__dict__:
+        # load models from common.vision.models
+        backbone = models.__dict__[model_name](pretrained=pretrain)
+    else:
+        # load models from pytorch-image-models
+        backbone = timm.create_model(model_name, pretrained=pretrain)
+        try:
+            backbone.out_features = backbone.get_classifier().in_features
+            backbone.reset_classifier(0, '')
+        except:
+            backbone.out_features = backbone.head.in_features
+            backbone.head = nn.Identity()
+    return backbone

@@ -7,7 +7,7 @@ import socket
 import numpy as np
 import torch
 import torchvision
-from PIL import Image
+from PIL import Image, ImageFilter
 from scipy import stats
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
@@ -126,6 +126,16 @@ means = {"imagenet": [0.485, 0.456, 0.406]}
 
 stds = {"imagenet": [0.229, 0.224, 0.225]}
 
+class GaussianBlur(object):
+    """Gaussian blur augmentation in SimCLR https://arxiv.org/abs/2002.05709"""
+
+    def __init__(self, sigma=[.1, 2.]):
+        self.sigma = sigma
+
+    def __call__(self, x):
+        sigma = random.uniform(self.sigma[0], self.sigma[1])
+        x = x.filter(ImageFilter.GaussianBlur(radius=sigma))
+        return x
 
 def get_augmentation(trans_type="aug_0", image_size=224, stat="imagenet"):
     stat = "imagenet"
@@ -160,6 +170,19 @@ def get_augmentation(trans_type="aug_0", image_size=224, stat="imagenet"):
                 transforms.Normalize(mean=mean, std=std),
             ]
         ),
+        "aug_2" : transforms.Compose(
+            [
+                transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+                transforms.RandomApply([
+                    transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+                ], p=0.8),
+                transforms.RandomGrayscale(p=0.2),
+                transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mean, std=std),
+            ]
+        )
     }
 
     return data_transforms[trans_type]

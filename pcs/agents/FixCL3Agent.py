@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import torch
@@ -7,26 +8,22 @@ import torch.nn.functional as F
 import torchvision
 from models import (CosineClassifier, MemoryBank, SSDALossModule,
                     compute_variance, loss_info, torch_kmeans,
-                    update_data_memory)
+                    update_data_memory, CrossEntropyLabelSmooth)
 from sklearn import metrics
 from torch.nn.modules.activation import ReLU
 from torch.nn.modules.linear import Linear
 from tqdm import tqdm
-from utils import (AverageMeter, datautils, is_div, per, reverse_domain,
-                   torchutils, utils)
+from utils import (AverageMeter, ProgressMeter, datautils, is_div, per,
+                   reverse_domain, torchutils, utils)
 
 from . import BaseAgent
 
 ls_abbr = {
     "cls-so": "cls",
     "proto-each": "P",
-    "proto-src": "Ps",
-    "proto-tgt": "Pt",
     "cls-info": "info",
     "I2C-cross": "C",
     "I2M-cross": "CM",
-    "semi-condentmax": "sCE",
-    "semi-entmin": "sE",
     "tgt-condentmax": "tCE",
     "tgt-entmin": "tE",
     "ID-each": "I",
@@ -170,60 +167,67 @@ class FixCL3Agent(BaseAgent):
 
             self.set_attr(domain_name, "train_dataset", train_dataset)
             self.set_attr(domain_name, "train_ordered_labels", train_labels)
+            
             self.set_attr(domain_name, "train_loader", train_loader)
             self.set_attr(domain_name, "train_init_loader", train_init_loader)
             self.set_attr(domain_name, "train_len", len(train_dataset))
 
         # Classification and Fewshot Dataset
 
-        if fewshot:
-            train_lbd_dataset_source = datautils.create_dataset(
-                name,
-                domain["source"],
-                suffix=f"labeled_{fewshot}",
-                ret_index=True,
-                image_transform=aug_src,
-                image_size=image_size,
-            )
-            src_dataset = self.get_attr("source", "train_dataset")
-            (
-                self.fewshot_index_source,
-                self.fewshot_label_source,
-            ) = datautils.get_fewshot_index(train_lbd_dataset_source, src_dataset)
+        # if fewshot:
+        #     train_lbd_dataset_source = datautils.create_dataset(
+        #         name,
+        #         domain["source"],
+        #         suffix=f"labeled_{fewshot}",
+        #         ret_index=True,
+        #         image_transform=aug_src,
+        #         image_size=image_size,
+        #     )
+        #     src_dataset = self.get_attr("source", "train_dataset")
+        #     (
+        #         self.fewshot_index_source,
+        #         self.fewshot_label_source,
+        #     ) = datautils.get_fewshot_index(train_lbd_dataset_source, src_dataset)
 
-            test_unl_dataset_source = datautils.create_dataset(
-                name,
-                domain["source"],
-                suffix=f"unlabeled_{fewshot}",
-                ret_index=True,
-                image_transform=raw,
-                image_size=image_size,
-            )
-            self.test_unl_loader_source = datautils.create_loader(
-                test_unl_dataset_source,
-                batch_size_dict["test"],
-                is_train=False,
-                num_workers=num_workers,
-            )
+        #     test_unl_dataset_source = datautils.create_dataset(
+        #         name,
+        #         domain["source"],
+        #         suffix=f"unlabeled_{fewshot}",
+        #         ret_index=True,
+        #         image_transform=raw,
+        #         image_size=image_size,
+        #     )
+        #     self.test_unl_loader_source = datautils.create_loader(
+        #         test_unl_dataset_source,
+        #         batch_size_dict["test"],
+        #         is_train=False,
+        #         num_workers=num_workers,
+        #     )
 
-            # labels for fewshot
-            train_len = self.get_attr("source", "train_len")
-            self.fewshot_labels = (
-                torch.zeros(train_len, dtype=torch.long).detach().cuda() - 1
-            )
-            for ind, lbl in zip(self.fewshot_index_source, self.fewshot_label_source):
-                lbl = torch.ones(1)*lbl
-                self.fewshot_labels[ind] = lbl
+        #     # labels for fewshot
+        #     train_len = self.get_attr("source", "train_len")
+        #     self.fewshot_labels = (
+        #         torch.zeros(train_len, dtype=torch.long).detach().cuda() - 1
+        #     )
+        #     for ind, lbl in zip(self.fewshot_index_source, self.fewshot_label_source):
+        #         lbl = torch.ones(1)*lbl
+        #         self.fewshot_labels[ind] = lbl
 
-        else:
-            train_lbd_dataset_source = datautils.create_dataset(
-                name,
-                domain["source"],
-                ret_index=True,
-                image_transform=aug_src,
-                image_size=image_size,
-            )
-
+        # else:
+        #     train_lbd_dataset_source = datautils.create_dataset(
+        #         name,
+        #         domain["source"],
+        #         ret_index=True,
+        #         image_transform=aug_src,
+        #         image_size=image_size,
+        #     )
+        train_lbd_dataset_source = datautils.create_dataset(
+            name,
+            domain["source"],
+            ret_index=True,
+            image_transform=aug_src,
+            image_size=image_size,
+        )
         test_suffix = "test" if self.config.data_params.train_val_split else ""
         test_unl_dataset_target = datautils.create_dataset(
             name,
@@ -285,7 +289,8 @@ class FixCL3Agent(BaseAgent):
 
         # classification head
         if self.cls:
-            self.criterion = nn.CrossEntropyLoss().cuda()
+            # self.criterion = nn.CrossEntropyLoss().cuda()
+            self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
             cls_head = CosineClassifier(
                 num_class=self.num_class, inc=out_dim, temp=self.config.loss_params.T
             )
@@ -341,16 +346,18 @@ class FixCL3Agent(BaseAgent):
         if self.cls:
             self.cls_head.train()
         self.loss_fn.module.epoch = self.current_epoch
-
+        
         loss_list = self.config.loss_params.loss
         loss_weight = self.config.loss_params.weight
         loss_warmup = self.config.loss_params.start
         loss_giveup = self.config.loss_params.end
 
+        self.loss_fn.module.set_broadcast("source", "labels", self.get_attr("source", "train_ordered_labels"))
         num_loss = len(loss_list)
 
         source_loader = self.get_attr("source", "train_loader")
         target_loader = self.get_attr("target", "train_loader")
+
         if self.config.steps_epoch is None:
             num_batches = max(len(source_loader), len(target_loader)) + 1
             self.logger.info(f"source loader batches: {len(source_loader)}")
@@ -358,48 +365,72 @@ class FixCL3Agent(BaseAgent):
         else:
             num_batches = self.config.steps_epoch
 
-        epoch_loss = AverageMeter()
-        epoch_loss_parts = [AverageMeter() for _ in range(num_loss)]
+        batch_time = AverageMeter('Time', ':6.3f')
+        load_time = AverageMeter('Load', ':6.3f')
+        total_loss = AverageMeter('Loss', ':.4e')
+        losses = []
+        for loss_item in loss_list:
+            losses.append(AverageMeter(loss_item, ':.4e'))
+        acc = AverageMeter('Acc', ':6.2f')
+        progress_list = [batch_time, load_time, total_loss]
+        progress_list = progress_list+losses
+        progress_list.append(acc)
+        progress = ProgressMeter(
+            num_batches,
+            progress_list,
+            prefix="Epoch: [{}]".format(self.current_epoch)
+        )
+
+        end = time.time()
+
+        # epoch_loss = AverageMeter('Loss', ':.4e')
+        # epoch_loss_parts = [AverageMeter() for _ in range(num_loss)]
 
         # cluster
-        if self.clus:
-            if self.config.loss_params.clus.kmeans_freq:
-                kmeans_batches = num_batches // self.config.loss_params.clus.kmeans_freq
-            else:
-                kmeans_batches = 1
-        else:
-            kmeans_batches = None
+        # if self.clus:
+        #     if self.config.loss_params.clus.kmeans_freq:
+        #         kmeans_batches = num_batches // self.config.loss_params.clus.kmeans_freq
+        #     else:
+        #         kmeans_batches = 1
+        # else:
+        #     kmeans_batches = None
 
         # load weight
         self._load_fewshot_to_cls_weight()
-        if self.fewshot:
-            fewshot_index = torch.tensor(self.fewshot_index_source).cuda()
+        load_time.update(time.time() - end)
+        # if self.fewshot:
+        #     fewshot_index = torch.tensor(self.fewshot_index_source).cuda()
         
         # TODO: Target - init target labels & target prototype
-        if self.config.model_params.mix:
+        if self.config.model_params.mix and self.current_epoch < 6:
             k = self.num_class
             memory_bank_instance_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
+            
             target_labels, target_cluster_centroids, target_cluster_phi = torch_kmeans(
                 k_list=[k],
                 data=memory_bank_instance_target,
                 init_centroids=self.get_attr("source", "memory_bank_proto").as_tensor(),
                 seed=self.current_epoch + self.current_iteration)
             tar_proto = memory_bank_proto_target.as_tensor()
-            if self.current_epoch < 2:
-                new_tar_proto = target_cluster_centroids[0]
-            else:
-                new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0])
+            # boardcast target labels
+            self.loss_fn.module.set_broadcast("target", "labels", target_labels)
+            # if self.current_epoch < 2:
+            #     new_tar_proto = target_cluster_centroids[0]
+            # else:
+            #     new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0])
+            new_tar_proto = target_cluster_centroids[0]
             memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-
-        tqdm_batch = tqdm(
-            total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
-        )
-        tqdm_post = {}
+        else:
+            target_labels = None
+        # tqdm_batch = tqdm(
+        #     total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
+        # )
+        # tqdm_post = {}
         for batch_i in range(num_batches):
             # Kmeans
-            if is_div(kmeans_batches, batch_i):
-                self._update_cluster_labels()
+            # if is_div(kmeans_batches, batch_i):
+            #     self._update_cluster_labels()
 
             if not self.config.optim_params.cls_update:
                 self._load_fewshot_to_cls_weight()
@@ -407,12 +438,6 @@ class FixCL3Agent(BaseAgent):
             # iteration over all source images
             if not batch_i % len(source_loader):
                 source_iter = iter(source_loader)
-
-                if "semi-condentmax" in self.config.loss_params.loss:
-                    momentum_prob_source = (
-                        self.momentum_softmax_source.softmax_vector.cuda()
-                    )
-                    self.momentum_softmax_source.reset()
 
             # iteration over all target images
             if not batch_i % len(target_loader):
@@ -455,7 +480,6 @@ class FixCL3Agent(BaseAgent):
                         update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
                         memory_bank_proto_source.update(idx, update_proto)
                     
-
                 # Matching & ssl
                 if (self.tgt and domain_name == "target") or self.ssl:
                     loader_iter = (
@@ -463,14 +487,16 @@ class FixCL3Agent(BaseAgent):
                     )
 
                     indices_unl, images_unl, _ = next(loader_iter)
-                    if domain_name == "target":
-                        labels_unl = target_labels.squeeze()[indices_unl]
                     images_unl = images_unl.cuda()
                     indices_unl = indices_unl.cuda()
                     feat_unl = self.model(images_unl)
                     feat_unl = F.normalize(feat_unl, dim=1)
                     out_unl = self.cls_head(feat_unl)
-
+                    if domain_name == "target":
+                        if target_labels is not None:
+                            labels_unl = target_labels.squeeze()[indices_unl]
+                        else:
+                            labels_unl = out_unl.max(1)[1]
                 if domain_name == "target":
                     # TODO: Target - update target prototype
                     for idx in range(self.num_class):
@@ -483,7 +509,7 @@ class FixCL3Agent(BaseAgent):
                         old_proto = memory_bank_proto_target.at_idxs(idx)
                         update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1))
                         memory_bank_proto_target.update(idx, update_proto)
-                        
+
                 domain_m_dict = {
                     "source": 0.8,
                     "target": 0.2
@@ -566,8 +592,8 @@ class FixCL3Agent(BaseAgent):
                     # classification on few-shot
                     if ls == "cls-so" and domain_name == "source":
                         loss_part = self.criterion(out_lbd, labels_lbd)
-                    elif ls == "cls-info" and domain_name == "source":
-                        loss_part = loss_info(feat_lbd, mb_feat_lbd, labels_lbd)
+                    # elif ls == "cls-info" and domain_name == "source":
+                    #     loss_part = loss_info(feat_lbd, mb_feat_lbd, labels_lbd)
                     # semi-supervision learning on unlabled source
                     # elif ls == "semi-entmin" and domain_name == "source":
                     #     loss_part = torchutils.entropy(out_semi)
@@ -581,9 +607,9 @@ class FixCL3Agent(BaseAgent):
                         #     prob_mean_semi.cpu().detach(), bs
                         # )
                         # get momentum probability
-                        momentum_prob_source = (
-                            self.momentum_softmax_source.softmax_vector.cuda()
-                        )
+                        # momentum_prob_source = (
+                        #     self.momentum_softmax_source.softmax_vector.cuda()
+                        # )
                         # compute loss
                         # entropy_cond = -torch.sum(
                         #     prob_mean_semi * torch.log(momentum_prob_source + 1e-5)
@@ -635,45 +661,43 @@ class FixCL3Agent(BaseAgent):
                     #     )
 
                 # update lr info
-                tqdm_post["lr"] = torchutils.get_lr(self.optim, g_id=-1)
+                # tqdm_post["lr"] = torchutils.get_lr(self.optim, g_id=-1)
 
                 # update loss info
-                epoch_loss.update(loss_d, batch_size)
-                tqdm_post["loss"] = epoch_loss.avg
+                total_loss.update(loss_d, batch_size)
+                # tqdm_post["loss"] = epoch_loss.avg
                 self.summary_writer.add_scalars(
-                    "train/loss", {"loss": epoch_loss.val}, self.current_iteration
+                    "train/loss", {"loss": total_loss.val}, self.current_iteration
                 )
-                self.train_loss.append(epoch_loss.val)
+                self.train_loss.append(total_loss.val)
 
                 # update loss part info
                 domain_iteration = self.get_attr(domain_name, "current_iteration")
                 self.summary_writer.add_scalars(
                     f"train/{self.domain_map[domain_name]}_loss",
-                    {"loss": epoch_loss.val},
+                    {"loss": total_loss.val},
                     domain_iteration,
                 )
                 for i, ls in enumerate(loss_part_d):
-                    ls_name = loss_list[i]
-                    epoch_loss_parts[i].update(ls, batch_size)
-                    tqdm_post[ls_abbr[ls_name]] = epoch_loss_parts[i].avg
-                    self.summary_writer.add_scalars(
-                        f"train/{self.domain_map[domain_name]}_loss",
-                        {ls_name: epoch_loss_parts[i].val},
-                        domain_iteration,
-                    )
+                    if ls != 0:
+                        losses[i].update(ls, batch_size)
 
                 # adjust lr
                 if self.config.optim_params.decay:
                     self.optim_iterdecayLR.step()
 
                 self.current_iteration += 1
-            tqdm_batch.set_postfix(tqdm_post)
-            tqdm_batch.update()
+            # tqdm_batch.set_postfix(tqdm_post)
+            # tqdm_batch.update()
             self.current_iteration_source += 1
             self.current_iteration_target += 1
-        tqdm_batch.close()
-
-        self.current_loss = epoch_loss.avg
+            batch_time.update(time.time() - end)
+            end = time.time()
+            if batch_i % 10 == 0:
+                progress.display(batch_i)
+        # tqdm_batch.close()
+        
+        self.current_loss = total_loss.avg
 
     @torch.no_grad()
     def _load_fewshot_to_cls_weight(self):
@@ -734,7 +758,6 @@ class FixCL3Agent(BaseAgent):
                 weight[label] = F.normalize(torch.mean(bank_vec, dim=0), dim=0)
 
     # Validate
-
     @torch.no_grad()
     def validate(self):
         self.model.eval()
@@ -772,7 +795,7 @@ class FixCL3Agent(BaseAgent):
     def score(self, loader, name="test"):
         correct = 0
         size = 0
-        epoch_loss = AverageMeter()
+        epoch_loss = AverageMeter('Loss', ':.4e')
         error_indices = []
         confusion_matrix = torch.zeros(self.num_class, self.num_class, dtype=torch.long)
         pred_score = []
@@ -914,7 +937,6 @@ class FixCL3Agent(BaseAgent):
         self.copy_checkpoint()
 
     # compute train features
-
     @torch.no_grad()
     def compute_train_features(self):
         if self.is_features_computed:
