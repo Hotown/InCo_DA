@@ -12,7 +12,6 @@ import sys
 import numpy as np
 import torch
 from dotmap import DotMap
-import timm
 import torch.nn as nn
 sys.path.append('.')
 import common.vision.models as models
@@ -188,11 +187,12 @@ def get_model(model_name, pretrain=True):
         backbone = models.__dict__[model_name](pretrained=pretrain)
     else:
         # load models from pytorch-image-models
-        backbone = timm.create_model(model_name, pretrained=pretrain)
-        try:
-            backbone.out_features = backbone.get_classifier().in_features
-            backbone.reset_classifier(0, '')
-        except:
-            backbone.out_features = backbone.head.in_features
-            backbone.head = nn.Identity()
+        # backbone = timm.create_model(model_name, pretrained=pretrain)
+        # try:
+        #     backbone.out_features = backbone.get_classifier().in_features
+        #     backbone.reset_classifier(0, '')
+        # except:
+        #     backbone.out_features = backbone.head.in_features
+        #     backbone.head = nn.Identity()
+        NotImplementedError
     return backbone

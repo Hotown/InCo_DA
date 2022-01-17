@@ -200,7 +200,7 @@ class DEVAgent(BaseAgent):
             raise NotImplementedError
 
         # TODO: distributed
-        # model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
 
@@ -245,8 +245,12 @@ class DEVAgent(BaseAgent):
             )
             self.lr_scheduler_list.append(optim_stepLR)
 
+        # if self.config.optim_params.decay:
+        #     self.optim_iterdecayLR = torchutils.lr_scheduler_invLR(self.optim)
         if self.config.optim_params.decay:
-            self.optim_iterdecayLR = torchutils.lr_scheduler_invLR(self.optim)
+            optim_cosLR = torchutils.lr_scheduler_cosLR(
+                self.optim, self.config.num_epochs)
+            self.lr_scheduler_list.append(optim_cosLR)
         
         
     def train_one_epoch(self):
