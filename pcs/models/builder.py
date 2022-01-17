@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from .head import Classifier as ClassifierBase
 from typing import List, Dict
+from utils import torchutils
 
 class FixCL(ClassifierBase):
     def __init__(self, backbone: nn.Module, num_classes:int, bottleneck_dim: Optional[int]=512, mlp=False, **kwargs):
@@ -22,6 +23,8 @@ class FixCL(ClassifierBase):
         else:
             bottleneck = nn.Linear(backbone.out_features, bottleneck_dim)
             
+        torchutils.weights_init(bottleneck)
+        
         head_dim = 256
         
         head = nn.Sequential(
@@ -30,6 +33,8 @@ class FixCL(ClassifierBase):
             nn.ReLU(),
             nn.Linear(head_dim, num_classes)
         )
+        
+        torchutils.weights_init(head)
         
         super(FixCL, self).__init__(backbone, num_classes, bottleneck=bottleneck, bottleneck_dim=bottleneck_dim, head=head,**kwargs)
         

@@ -313,10 +313,11 @@ class DEVAgent(BaseAgent):
             
             tar_proto = memory_bank_proto_target.as_tensor()
             
-            if self.current_epoch < 2:
-                new_tar_proto = target_cluster_centroids[0]
-            else:
-                new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
+            # if self.current_epoch < 2:
+            #     new_tar_proto = target_cluster_centroids[0]
+            # else:
+            #     new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
+            new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
             memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
             
             # if self.current_epoch < 2:
