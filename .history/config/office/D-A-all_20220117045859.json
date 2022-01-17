@@ -24,7 +24,7 @@
     "cls_update": true
   },
   "model_params": {
-    "m": 0.9,
+    "m": 0.99,
     "mlp": true,
     "mix": true,
     "out_dim": 512,

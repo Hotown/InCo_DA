@@ -200,7 +200,7 @@ class DEVAgent(BaseAgent):
             raise NotImplementedError
 
         # TODO: distributed
-        # model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
 
@@ -363,8 +363,8 @@ class DEVAgent(BaseAgent):
             mix_source = self.get_attr("source", "memory_bank_mix")
             mix_target = self.get_attr("target", "memory_bank_mix")
             
-            logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_target.as_tensor()])
-            logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_source.as_tensor()])
+            logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_source.as_tensor()])
+            logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_target.as_tensor()])
             logits_source_mix /= self.t
             logits_target_mix /= self.t
             
@@ -407,10 +407,10 @@ class DEVAgent(BaseAgent):
                     # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
                 elif ls.split("-")[0] == "I2M":
-                    # mix_source_loss = Entropy()(logits_source_mix)
-                    # mix_target_loss = Entropy()(logits_target_mix)
-                    mix_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source_mix, labels_source)
-                    mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
+                    mix_source_loss = Entropy()(logits_source_mix)
+                    mix_target_loss = Entropy()(logits_target_mix)
+                    # mix_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source_mix, labels_source)
+                    # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                     
                 loss_part = loss_weight[ind] * loss_part
@@ -433,9 +433,8 @@ class DEVAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
-            # new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
-            # new_target_data = F.normalize(new_target_data, dim=1)
-            new_target_data = update_data_memory(data_memory, feat_target, m=0.999)
+            new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
+            new_target_data = F.normalize(new_target_data, dim=1)
             self._update_memory_bank("target", indices_target, new_target_data)
             
             # source proto
@@ -470,10 +469,10 @@ class DEVAgent(BaseAgent):
             update_mix_target = domain_m_dict["target"] * proto_source.as_tensor() + domain_m_dict["source"] * proto_target.as_tensor()
             update_mix_source = F.normalize(update_mix_source, dim=1)
             update_mix_target = F.normalize(update_mix_target, dim=1)
-            update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
-            update_mix_target = update_data_memory(mix_proto_target.as_tensor(), update_mix_target, m=self.m)
-            # mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
-            # mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
+            # update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
+            # update_mix_target = update_data_memory(mix_proto_target.as_tensor(), update_mix_target, m=self.m)
+            mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
+            mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
             
             # Measure elapsed time
             batch_time.update(time.time() - end)

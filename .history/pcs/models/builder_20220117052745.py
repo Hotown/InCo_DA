@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 from .head import Classifier as ClassifierBase
 from typing import List, Dict
-
 class FixCL(ClassifierBase):
     def __init__(self, backbone: nn.Module, num_classes:int, bottleneck_dim: Optional[int]=512, mlp=False, **kwargs):
         """

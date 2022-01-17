@@ -200,7 +200,7 @@ class DEVAgent(BaseAgent):
             raise NotImplementedError
 
         # TODO: distributed
-        # model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
 

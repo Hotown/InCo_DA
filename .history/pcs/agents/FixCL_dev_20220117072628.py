@@ -200,7 +200,7 @@ class DEVAgent(BaseAgent):
             raise NotImplementedError
 
         # TODO: distributed
-        # model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
 
@@ -435,7 +435,6 @@ class DEVAgent(BaseAgent):
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
             # new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
             # new_target_data = F.normalize(new_target_data, dim=1)
-            new_target_data = update_data_memory(data_memory, feat_target, m=0.999)
             self._update_memory_bank("target", indices_target, new_target_data)
             
             # source proto

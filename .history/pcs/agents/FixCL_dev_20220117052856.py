@@ -198,9 +198,10 @@ class DEVAgent(BaseAgent):
             print(model)
         else:
             raise NotImplementedError
-
+        
+        domain_discri = models.builder.DomainDiscriminator(, hidde)
         # TODO: distributed
-        # model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
 
@@ -433,9 +434,8 @@ class DEVAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
-            # new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
-            # new_target_data = F.normalize(new_target_data, dim=1)
-            new_target_data = update_data_memory(data_memory, feat_target, m=0.999)
+            new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
+            new_target_data = F.normalize(new_target_data, dim=1)
             self._update_memory_bank("target", indices_target, new_target_data)
             
             # source proto
@@ -466,14 +466,14 @@ class DEVAgent(BaseAgent):
             proto_target = self.get_attr("target", "memory_bank_proto")
             mix_proto_source = self.get_attr("source", "memory_bank_mix")
             mix_proto_target = self.get_attr("target", "memory_bank_mix")
-            update_mix_source = domain_m_dict["source"] * proto_source.as_tensor() + domain_m_dict["target"] * proto_target.as_tensor()
+            update_mix_source = domain_m_dict["source"] * proto_source.as_tensor() + (1 - domain_m_dict["target"]) * proto_target.as_tensor()
             update_mix_target = domain_m_dict["target"] * proto_source.as_tensor() + domain_m_dict["source"] * proto_target.as_tensor()
             update_mix_source = F.normalize(update_mix_source, dim=1)
             update_mix_target = F.normalize(update_mix_target, dim=1)
-            update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
-            update_mix_target = update_data_memory(mix_proto_target.as_tensor(), update_mix_target, m=self.m)
-            # mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
-            # mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
+            # update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
+            # update_mix_target = update_data_memory(mix_proto_target.as_tensor(), update_mix_target, m=self.m)
+            mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
+            mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
             
             # Measure elapsed time
             batch_time.update(time.time() - end)
