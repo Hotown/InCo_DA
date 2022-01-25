@@ -12,6 +12,7 @@
     "aug": "aug_0"
   },
   "num_epochs": 500,
+  "warm_up": 10,
   "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,
@@ -39,7 +40,7 @@
       "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 1, 0.05, 0.05],
+    "weight": [1, 1, 1, 0, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],

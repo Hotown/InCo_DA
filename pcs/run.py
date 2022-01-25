@@ -40,7 +40,6 @@ def adjust_config(config):
     # optim_params
     set_default(config.optim_params, "batch_size_src", callback="batch_size")
     set_default(config.optim_params, "batch_size_tgt", callback="batch_size")
-    set_default(config.optim_params, "batch_size_lbd", callback="batch_size")
     set_default(config.optim_params, "momentum", value=0.9)
     set_default(config.optim_params, "nesterov", value=True)
     set_default(config.optim_params, "lr_decay_rate", value=0.1)

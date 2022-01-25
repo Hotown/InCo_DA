@@ -135,7 +135,13 @@ class BaseAgent(object):
         """
         if self.config.validate_freq:
             self.validate()
-
+        
+        if self.config.warm_up:
+            for epoch in range(self.config.warm_up):
+                self.current_epoch = epoch + 1
+                self.warm_up_one_epoch()
+            self.logger.info("Warm up done.")
+            self.current_epoch = 0
         for epoch in range(self.current_epoch + 1, self.config.num_epochs + 1):
             # early stop
             patience = self.config.optim_params.patience
@@ -155,6 +161,12 @@ class BaseAgent(object):
                 sch.step()
             # TODO: save checkpoint
             # self.save_checkpoint()
+
+    def warm_up_one_epoch(self):
+        """
+        One epoch of warm up
+        """
+        raise NotImplementedError
 
     def train_one_epoch(self):
         """

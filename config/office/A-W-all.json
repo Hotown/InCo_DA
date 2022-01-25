@@ -12,6 +12,7 @@
         "aug": "aug_0"
     },
     "num_epochs": 500,
+    "warm_up": 10,
     "steps_epoch": null,
     "optim_params": {
         "learning_rate": 0.01,

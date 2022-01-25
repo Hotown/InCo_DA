@@ -2,12 +2,13 @@
   "seed": 1337,
   "exp_base": "./exps",
   "exp_name": "officehome",
-  "exp_id": "Art->Clipart:p03",
+  "exp_id": "Art->Clipart:all",
+  "agent": "FixCLAgent",
   "data_params": {
     "name": "office_home",
     "source": "Art",
     "target": "Clipart",
-    "fewshot": "p03",
+    "fewshot": "",
     "aug": "aug_0"
   },
   "num_epochs": 500,

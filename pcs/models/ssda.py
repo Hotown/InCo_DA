@@ -210,7 +210,8 @@ class SSDALossModule(torch.nn.Module):
         loss /= n_kmeans
 
         return loss
-
+        
+    # TODO: use proto
     def _compute_proto_loss(self, domain, loss_type, t=0.05):
         loss = torch.Tensor([0]).cuda()
         if (loss_type.startswith("src") and domain == "target") or (
@@ -243,6 +244,7 @@ class SSDALossModule(torch.nn.Module):
         loss = loss - torch.sum(torch.log(p)) / p.size(0)
 
         return loss
+
     # def _compute_proto_loss(self, domain, loss_type, t=0.05):
     #     """Loss PC in essay (part of In-domain Prototypical Contrastive Learning)
 

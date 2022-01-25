@@ -1,9 +1,11 @@
-from typing import Optional
+from typing import Dict, List, Optional
+
 import torch
 import torch.nn as nn
-from .head import Classifier as ClassifierBase
-from typing import List, Dict
 from utils import torchutils
+
+from .head import Classifier as ClassifierBase
+
 
 class FixCL(ClassifierBase):
     def __init__(self, backbone: nn.Module, num_classes:int, bottleneck_dim: Optional[int]=512, mlp=False, **kwargs):
@@ -29,7 +31,7 @@ class FixCL(ClassifierBase):
         
         head = nn.Sequential(
             nn.Linear(backbone.out_features, head_dim),
-            # nn.BatchNorm1d(head_dim),
+            nn.BatchNorm1d(head_dim),
             nn.ReLU(),
             nn.Linear(head_dim, num_classes)
         )

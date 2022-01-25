@@ -477,8 +477,8 @@ class DEVAgent(BaseAgent):
             update_mix_target = F.normalize(update_mix_target, dim=1)
             update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
             update_mix_target = update_data_memory(mix_proto_target.as_tensor(), update_mix_target, m=self.m)
-            # mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
-            # mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
+            mix_proto_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
+            mix_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
             
             # Measure elapsed time
             batch_time.update(time.time() - end)
