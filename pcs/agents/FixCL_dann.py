@@ -4,6 +4,7 @@ from curses.ascii import BS
 from tkinter import image_names
 from xml.sax.handler import feature_external_ges
 
+import sys
 import models.builder
 import numpy as np
 import torch
@@ -14,9 +15,9 @@ from models import (CrossEntropyLabelSmooth, Entropy, MemoryBank, torch_kmeans,
                     update_data_memory)
 from sklearn import metrics
 from tqdm import tqdm
-from utils import AverageMeter, ProgressMeter, datautils, get_model, torchutils
-
+from utils import AverageMeter, ProgressMeter, datautils, get_model, torchutils, accuracy
 from . import BaseAgent
+
 
 ls_abbr = {
     "cls-so": "cls",
@@ -31,7 +32,7 @@ ls_abbr = {
 }
 
 
-class FixCL4(BaseAgent):
+class FixDANNAgent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -42,22 +43,30 @@ class FixCL4(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(FixCL4, self).__init__(config)
+        super(FixDANNAgent, self).__init__(config)
 
         # for MIM
         self.momentum_softmax_target = torchutils.MomentumSoftmax(
             self.num_class, m=len(self.get_attr("target", "train_loader"))
         )
 
+        self.domain_m_dict = {
+            "source": 0.8,
+            "target": 0.2
+        }
+
         # init loss
         self.t = config.loss_params.T
         self.m = config.model_params.m
 
-        if self.config.pretrained_exp_dir is None:
-            self._init_memory_bank()
+        # if self.config.pretrained_exp_dir is None:
+        #     self._init_memory_bank()
 
         # init statics
         self._init_labels() 
+        
+        # init target pseudo label
+        self.get_pseudo_target()
         
     def _define_task(self, config):
         # specify task
@@ -75,16 +84,18 @@ class FixCL4(BaseAgent):
         train_len_tgt = self.get_attr("target", "train_len")
         train_len_src = self.get_attr("source", "train_len")
 
-        # labels for pseudo
         self.source_labels = (
             torch.zeros(train_len_src, dtype=torch.long).detach().cuda() - 1
         )
         for ind, _, lbl in self.get_attr("source", "train_loader"):
             lbl = torch.ones(1, dtype=torch.long).cuda() * lbl.cuda()
             self.source_labels[ind] = lbl
+        
+        # pseudo target labels: not use
         self.predict_ordered_labels_pseudo_target = (
             torch.zeros(train_len_tgt, dtype=torch.long).detach().cuda() - 1
         )
+
 
     def _load_datasets(self):
         name = self.config.data_params.name
@@ -203,8 +214,8 @@ class FixCL4(BaseAgent):
         model = model.cuda()
         self.model = model
 
-        self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
-        # self.criterion = nn.CrossEntropyLoss()
+        # self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
+        self.criterion = nn.CrossEntropyLoss()
         
     def _create_optimizer(self):
         lr = self.config.optim_params.learning_rate
@@ -250,12 +261,93 @@ class FixCL4(BaseAgent):
             optim_cosLR = torchutils.lr_scheduler_cosLR(
                 self.optim, self.config.num_epochs)
             self.lr_scheduler_list.append(optim_cosLR)
-        
-        
-    def train_one_epoch(self):
-        # train preparation
+    
+    def warm_up_one_epoch(self):
+        source_loader = self.get_attr("source", "train_loader")
+        target_loader = self.get_attr("target", "train_loader")
+
+        if self.config.steps_epoch is None:
+            num_batches = max(len(source_loader), len(target_loader)) + 1
+            self.logger.info(f"source loader batches: {len(source_loader)}")
+            self.logger.info(f"target loader batches: {len(target_loader)}")
+        else:
+            num_batches = self.config.steps_epoch
+
+        batch_time = AverageMeter('Time', ':6.3f')
+        losses = AverageMeter('Loss', ':.4e')
+        top1 = AverageMeter('Source Acc@1', ':6.2f')
+        progress = ProgressMeter(
+            num_batches,
+            [batch_time, top1, losses],
+            prefix="Warm-up Epoch: [{}]".format(self.current_epoch)
+        )
+
         self.model = self.model.train()
         
+        end = time.time()
+
+        for batch_i in range(num_batches):
+            # iteration over all source images
+            if not batch_i % len(source_loader):
+                source_iter = iter(source_loader)
+
+            # iteration over all target images
+            if not batch_i % len(target_loader):
+                target_iter = iter(target_loader)
+            
+            indices_source, images_source, labels_source = next(source_iter)
+            indices_source = indices_source.cuda()
+            images_source = images_source.cuda()
+            labels_source = labels_source.cuda()
+            
+            indices_target, images_target, _ = next(target_iter)
+            indices_target = indices_target.cuda()
+            images_target = images_target.cuda()
+
+            feat_source, out_source = self.model(images_source)
+            feat_target, out_target = self.model(images_target)
+
+            # source cls for warm up
+            source_loss = nn.CrossEntropyLoss()(out_source, labels_source)
+            cls_acc = accuracy(out_source, labels_source)[0]
+            top1.update(cls_acc, images_source.size(0))
+
+            # target entropy for warm up
+            target_loss = Entropy()(out_target)
+
+            loss = source_loss + 0.05 * target_loss
+
+            losses.update(loss.item(), images_source.size(0))
+
+            # compute gradient and SGD step
+            self.optim.zero_grad()
+            loss.backward()
+            self.optim.step()
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+            
+            print_freq = 10
+            if batch_i % print_freq == 0:
+                print(torchutils.get_lr(self.optim, g_id=-1))
+                progress.display(batch_i)
+
+    def get_pseudo_target(self):
+        target_loader = self.get_attr("target", "train_init_loader")
+        model = torch.load("/root/hotown/con_learning/best.pth").cuda()
+        model.eval()
+        pred_label = []
+        with torch.no_grad():
+            for (_, image, label) in iter(target_loader):
+                image = image.cuda()
+                output = model(image)
+                pred = torch.argmax(output, dim=1)
+                pred_label += pred
+        pred_label = torch.Tensor(pred_label).long()
+        self.set_attr("target", "pseudo_label", pred_label)
+        
+    def train_one_epoch(self):
         loss_list = self.config.loss_params.loss
         loss_weight = self.config.loss_params.weight
         loss_warmup = self.config.loss_params.start
@@ -289,19 +381,19 @@ class FixCL4(BaseAgent):
             prefix="Epoch: [{}]".format(self.current_epoch)
         )
 
+        if self.config.pretrained_exp_dir is None and self.current_epoch == 1:
+            self._init_memory_bank()
+        # train preparation
+        
+        self.model = self.model.train()
+        
         end = time.time()
 
-        # TODO: Target - init target labels & target prototype
+        # TODO: Target - update target labels before every epoch
         if self.config.model_params.mix:
             k = self.num_class
             memory_bank_instance_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
-
-            # if self.current_epoch <= 5:
-            #     init_centroids = self.get_attr("source", "memory_bank_proto").as_tensor()
-            # else:
-            #     init_centroids = self.get_attr("target", "memory_bank_proto").as_tensor()
-            
             init_centroids = self.get_attr("source", "memory_bank_proto").as_tensor()
             
             target_labels, target_cluster_centroids, target_cluster_phi = torch_kmeans(
@@ -311,18 +403,10 @@ class FixCL4(BaseAgent):
                 seed=self.current_epoch + self.current_iteration)
             
             tar_proto = memory_bank_proto_target.as_tensor()
-            
-            # if self.current_epoch < 2:
-            #     new_tar_proto = target_cluster_centroids[0]
-            # else:
-            #     new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
             new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
             memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-            
-            # if self.current_epoch < 2:
-            #     new_tar_proto = target_cluster_centroids[0]
-            #     memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-
+        target_labels = self.get_attr("target", "pseudo_label")
+        
         for batch_i in range(num_batches):
             # iteration over all source images
             if not batch_i % len(source_loader):
@@ -346,16 +430,17 @@ class FixCL4(BaseAgent):
             indices_target, images_target, _ = next(target_iter)
             indices_target = indices_target.cuda()
             images_target = images_target.cuda()
-            labels_target = target_labels.squeeze()[indices_target]
+            # labels_target = target_labels.squeeze()[indices_target]
+            labels_target = target_labels[indices_target].cuda()
             
             feat_source, predict_source = self.model(images_source)
             feat_target, predict_target = self.model(images_target)
             feat_source = F.normalize(feat_source, dim=1)
             feat_target = F.normalize(feat_target, dim=1)
             
-            # proto-each loss
+            # proto-each loss: In domain contrastive loss
             proto_source = self.get_attr("source", "memory_bank_proto") # K x C
-            logits_source = torch.einsum('nc,kc->nk',[feat_source, proto_source.as_tensor()]) # N=bt_size, K=class_num
+            logits_source = torch.einsum('nc,kc->nk',[feat_source, proto_source.as_tensor()]) # N = bt_size, K = class_num
 
             logits_source /= self.t
 
@@ -363,7 +448,7 @@ class FixCL4(BaseAgent):
             logits_target = torch.einsum('nc,kc->nk', [feat_target, proto_target.as_tensor()])
             logits_target /= self.t
 
-            # I2M Loss
+            # I2M Loss: Cross domain contrastive loss
             mix_source = self.get_attr("source", "memory_bank_mix")
             mix_target = self.get_attr("target", "memory_bank_mix")
             
@@ -411,10 +496,10 @@ class FixCL4(BaseAgent):
                     # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
                 elif ls.split("-")[0] == "I2M":
-                    # mix_source_loss = Entropy()(logits_source_mix)
-                    # mix_target_loss = Entropy()(logits_target_mix)
-                    mix_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source_mix, labels_source)
-                    mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
+                    mix_source_loss = Entropy()(logits_source_mix)
+                    mix_target_loss = Entropy()(logits_target_mix)
+                    # mix_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source_mix, labels_source)
+                    # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                     
                 loss_part = loss_weight[ind] * loss_part
@@ -428,18 +513,11 @@ class FixCL4(BaseAgent):
                 loss.backward()
             self.optim.step()
             
-            # update memory bank
-            domain_m_dict = {
-                "source": 0.8,
-                "target": 0.2
-            }
-            
+            # Update memory bank
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
-            # new_target_data = data_memory * self.m + (1 - self.m) * F.normalize(feat_target, dim=1)
-            # new_target_data = F.normalize(new_target_data, dim=1)
-            new_target_data = update_data_memory(data_memory, feat_target, m=0.999)
+            new_target_data = update_data_memory(data_memory, feat_target, m=self.m)
             self._update_memory_bank("target", indices_target, new_target_data)
             
             # source proto
@@ -453,25 +531,26 @@ class FixCL4(BaseAgent):
                 old_proto = proto_source.at_idxs(idx)
                 update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
                 proto_source.update(idx, update_proto)
+
             # target proto
-            # for idx in range(self.num_class):
-            #     if len(feat_target[labels_target == idx]) == 0:
-            #             continue
-            #     tmp_proto = feat_target[labels_target == idx].mean(0)
-            #     idx = torch.ones(1, dtype=torch.int64) * idx
-            #     idx = idx.cuda()
-            #     memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
-            #     old_proto = memory_bank_proto_target.at_idxs(idx)
-            #     update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
-            #     memory_bank_proto_target.update(idx, update_proto)
+            for idx in range(self.num_class):
+                if len(feat_target[labels_target == idx]) == 0:
+                        continue
+                tmp_proto = feat_target[labels_target == idx].mean(0)
+                idx = torch.ones(1, dtype=torch.int64) * idx
+                idx = idx.cuda()
+                memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
+                old_proto = memory_bank_proto_target.at_idxs(idx)
+                update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
+                memory_bank_proto_target.update(idx, update_proto)
             
             # mix proto
             proto_source = self.get_attr("source", "memory_bank_proto")
             proto_target = self.get_attr("target", "memory_bank_proto")
             mix_proto_source = self.get_attr("source", "memory_bank_mix")
             mix_proto_target = self.get_attr("target", "memory_bank_mix")
-            update_mix_source = domain_m_dict["source"] * proto_source.as_tensor() + domain_m_dict["target"] * proto_target.as_tensor()
-            update_mix_target = domain_m_dict["target"] * proto_source.as_tensor() + domain_m_dict["source"] * proto_target.as_tensor()
+            update_mix_source = self.domain_m_dict["source"] * proto_source.as_tensor() + self.domain_m_dict["target"] * proto_target.as_tensor()
+            update_mix_target = self.domain_m_dict["target"] * proto_source.as_tensor() + self.domain_m_dict["source"] * proto_target.as_tensor()
             update_mix_source = F.normalize(update_mix_source, dim=1)
             update_mix_target = F.normalize(update_mix_target, dim=1)
             update_mix_source = update_data_memory(mix_proto_source.as_tensor(), update_mix_source, m=self.m)
@@ -701,7 +780,6 @@ class FixCL4(BaseAgent):
         for domain_name in ("source", "target"):
             data_len = self.get_attr(domain_name, "train_len")
             memory_bank = MemoryBank(data_len, out_dim)
-            memory_bank_mix = MemoryBank(self.num_class, out_dim)
             memory_bank_proto = MemoryBank(self.num_class, out_dim)
             if self.config.model_params.load_memory_bank:
                 self.compute_train_features()
@@ -719,19 +797,59 @@ class FixCL4(BaseAgent):
                         old_proto = memory_bank_proto.at_idxs(idx)
                         new_proto = feat[labels == idx].mean(0).view(1,-1)
                         update_proto = new_proto
+                        # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
                         memory_bank_proto.update(idx, update_proto)
-                # self.logger.info(
-                #     f"Initialize memorybank-{domain_name} with pretrained output features"
-                # )
+                # TODO: Target - init target prototype
+                elif domain_name == "target" and self.config.model_params.mix:
+                    # k = self.num_class
+                    
+                    # init_centroids = self.get_attr("source", "memory_bank_proto").as_tensor()
+                    
+                    # _, target_cluster_centroids, _ = torch_kmeans(
+                    #     k_list=[k],
+                    #     data=feat,
+                    #     init_centroids=init_centroids,
+                    #     seed=self.current_epoch + self.current_iteration)
+                    
+                    # new_tar_proto = target_cluster_centroids[0]
+        
+                    # memory_bank_proto.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
+                    labels = self.get_attr("target", "pseudo_label")[idx].cuda()
+                    for idx in range(self.num_class):
+                        if len(feat[labels == idx]) == 0:
+                            continue
+                        idx = torch.ones(1, dtype=torch.int64) * idx
+                        idx = idx.cuda()
+                        old_proto = memory_bank_proto.at_idxs(idx)
+                        new_proto = feat[labels == idx].mean(0).view(1,-1)
+                        update_proto = new_proto
+                        # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
+                        memory_bank_proto.update(idx, update_proto)
+                
+                if self.config.model_params.mix:
+                    self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
+                self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
+                self.logger.info(
+                    f"Initialize memorybank-{domain_name} with pretrained output features"
+                )
                 # save space
                 if self.config.data_params.name in ["visda17", "domainnet"]:
                     delattr(self, f"train_indices_{domain_name}")
                     delattr(self, f"train_features_{domain_name}")
-            if self.config.model_params.mix:
-                self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
-            self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
-            # TODO: Mix - init mix prototype
-            self.set_attr(domain_name, "memory_bank_mix", memory_bank_mix)
+        # TODO: Mix - init mix prototype
+        mix_source = MemoryBank(self.num_class, out_dim)
+        mix_target = MemoryBank(self.num_class, out_dim)
+        proto_source = self.get_attr("source", "memory_bank_proto")
+        proto_target = self.get_attr("target", "memory_bank_proto") 
+        update_mix_source = self.domain_m_dict["source"] * proto_source.as_tensor() + self.domain_m_dict["target"] * proto_target.as_tensor()
+        update_mix_target = self.domain_m_dict["target"] * proto_source.as_tensor() + self.domain_m_dict["source"] * proto_target.as_tensor()
+        update_mix_source = F.normalize(update_mix_source, dim=1)
+        update_mix_target = F.normalize(update_mix_target, dim=1)
+        mix_source.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_source)
+        mix_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
+        self.set_attr("source", "memory_bank_mix", mix_source)
+        self.set_attr("target", "memory_bank_mix", mix_target)
+        self.logger.info(f"Initialize mix memorybank done.")
 
     @torch.no_grad()
     def _update_memory_bank(self, domain_name, indices, new_data_memory):
@@ -747,4 +865,3 @@ class FixCL4(BaseAgent):
         for domain_name in ("source", "target"):
             memory_bank = memory_bank_dict[domain_name]._bank.cuda()
             self.get_attr(domain_name, "memory_bank_wrapper")._bank = memory_bank
-            # self.loss_fn.module.set_broadcast(domain_name, "memory_bank", memory_bank)
