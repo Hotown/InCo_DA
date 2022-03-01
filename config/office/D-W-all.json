@@ -3,7 +3,7 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "dslr->webcam",
-  "agent": "DEVAgent",
+  "agent": "FixDANNAgent",
   "data_params": {
     "name": "office",
     "source": "dslr",

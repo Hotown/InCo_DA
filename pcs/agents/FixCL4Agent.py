@@ -31,7 +31,7 @@ ls_abbr = {
 }
 
 
-class FixCL4(BaseAgent):
+class FixCL4Agent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -42,7 +42,7 @@ class FixCL4(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(FixCL4, self).__init__(config)
+        super(FixCL4Agent, self).__init__(config)
 
         # for MIM
         self.momentum_softmax_target = torchutils.MomentumSoftmax(

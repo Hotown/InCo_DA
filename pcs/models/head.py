@@ -81,7 +81,7 @@ class Classifier(nn.Module):
         #     return feature, predictions
         # else:
         #     return predictions
-        return feature, predictions
+        return f, feature, predictions
     
     def get_parameters(self, base_lr=1.0) -> List[Dict]:
         """A parameter list which decides optimization hyper-parameters,
