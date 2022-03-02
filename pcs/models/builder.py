@@ -9,7 +9,7 @@ from .head import Classifier as ClassifierBase
 
 
 class FixCL(ClassifierBase):
-    def __init__(self, backbone: nn.Module, num_classes:int, bottleneck_dim: Optional[int]=512, mlp=False, **kwargs):
+    def __init__(self, backbone: nn.Module, num_classes:int, project_dim: Optional[int]=512, mlp=False, **kwargs):
         """
         dim: feature dimension (default: 512)
         K: queue size; number of negative keys (default: 65536)
@@ -18,28 +18,25 @@ class FixCL(ClassifierBase):
         """
         if mlp:
             dim_mlp = backbone.out_features
-            bottleneck = nn.Sequential(
+            project_head = nn.Sequential(
                 nn.Linear(dim_mlp, dim_mlp),
                 nn.ReLU(),
-                nn.Linear(dim_mlp, bottleneck_dim)
+                nn.Linear(dim_mlp, project_dim)
             )
         else:
-            bottleneck = nn.Linear(backbone.out_features, bottleneck_dim)
+            project_head = nn.Linear(backbone.out_features, project_dim)
             
-        torchutils.weights_init(bottleneck)
+        torchutils.weights_init(project_head)
         
-        head_dim = 256
+        bottleneck_dim = 256
         
-        head = nn.Sequential(
-            nn.Linear(backbone.out_features, head_dim),
-            nn.BatchNorm1d(head_dim),
-            nn.ReLU(),
-            nn.Linear(head_dim, num_classes)
+        bottleneck = nn.Sequential(
+            nn.Linear(backbone.out_features, bottleneck_dim),
+            nn.BatchNorm1d(bottleneck_dim),
+            nn.ReLU()
         )
         
-        torchutils.weights_init(head)
-        
-        super(FixCL, self).__init__(backbone, num_classes, bottleneck=bottleneck, bottleneck_dim=bottleneck_dim, head=head,**kwargs)
+        super(FixCL, self).__init__(backbone=backbone, num_classes=num_classes, bottleneck=bottleneck, bottleneck_dim=bottleneck_dim, project_head=project_head, project_dim=project_dim)
         
 class DomainDiscriminator(nn.Sequential):
     r"""Domain discriminator model from

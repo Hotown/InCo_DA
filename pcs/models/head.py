@@ -36,7 +36,7 @@ class Classifier(nn.Module):
         - features: (minibatch, `features_dim`)
     """
     def __init__(self, backbone: nn.Module, num_classes: int, bottleneck: Optional[nn.Module]=None,
-                 bottleneck_dim: Optional[int]=-1, head: Optional[nn.Module]=None, finetune=True, pool_layer=None):
+                 bottleneck_dim: Optional[int]=-1, project_head: Optional[nn.Module]=None, project_dim: Optional[int]=-1, head: Optional[nn.Module]=None, finetune=True, pool_layer=None):
         super(Classifier, self).__init__()
         self.backbone = backbone
         self.num_classes = num_classes
@@ -56,9 +56,16 @@ class Classifier(nn.Module):
             self.bottleneck = bottleneck
             assert bottleneck_dim > 0
             self._features_dim = bottleneck_dim
+        # project head
+        if project_head is None:
+            self.project_head = nn.Linear(backbone.out_features, project_dim)
+        else:
+            self.project_head = project_head
+            assert project_dim > 0
+
         # cls head
         if head is None:
-            self.head = nn.Linear(backbone.out_features, num_classes)
+            self.head = nn.Linear(self._features_dim, num_classes)
         else:
             self.head = head
             
@@ -75,13 +82,17 @@ class Classifier(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         f = self.pool_layer(self.backbone(x))
-        feature = self.bottleneck(f)
-        predictions = self.head(f)
+        project_feature = self.project_head(f)
+        predict_feature = self.bottleneck(f)
+        predictions = self.head(predict_feature)
         # if self.training:
         #     return feature, predictions
         # else:
         #     return predictions
-        return f, feature, predictions
+        if self.training:
+            return predict_feature, project_feature, predictions
+        else:
+            return predictions
     
     def get_parameters(self, base_lr=1.0) -> List[Dict]:
         """A parameter list which decides optimization hyper-parameters,
@@ -95,6 +106,7 @@ class Classifier(nn.Module):
         """
         params = [
             {"params": self.backbone.parameters(), "lr": 0.1 * base_lr if self.finetune else 1.0 * base_lr},
+            {"params": self.project_head.parameters(), "lr": 1.0 * base_lr},
             {"params": self.bottleneck.parameters(), "lr": 1.0 * base_lr},
             {"params": self.head.parameters(), "lr": 1.0 * base_lr}
         ]
@@ -111,7 +123,6 @@ class CosineClassifier(nn.Module):
 
     def forward(self, x, reverse=False, eta=0.1):
         self.normalize_fc()
-
         if reverse:
             x = grad_reverse(x, eta)
         x = F.normalize(x)

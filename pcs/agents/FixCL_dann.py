@@ -1,3 +1,4 @@
+import enum
 import os
 import time
 from curses.ascii import BS
@@ -66,7 +67,7 @@ class FixDANNAgent(BaseAgent):
         self._init_labels() 
         
         # init target pseudo label
-        # self.get_pseudo_target()
+        self.get_pseudo_target()
         
     def _define_task(self, config):
         # specify task
@@ -209,15 +210,17 @@ class FixDANNAgent(BaseAgent):
         else:
             raise NotImplementedError
 
+        # self.model_param = model.get_parameters()
         # TODO: distributed
-        model = nn.DataParallel(model, device_ids=self.gpu_devices)
-        model = model.cuda()
-        self.model = model
-        self.domain_discri = models.builder.DomainDiscriminator(in_feature=backbone.out_features, hidden_size=1024).cuda()
+        self.domain_discri = models.builder.DomainDiscriminator(in_feature=model.features_dim, hidden_size=1024).cuda()
+        # self.domain_discri_param = self.domain_discri.get_parameters()
         # self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
         self.criterion = nn.CrossEntropyLoss()
         self.domain_adv = DomainAdversarialLoss(self.domain_discri).cuda()
-        
+        model = nn.DataParallel(model, device_ids=self.gpu_devices)
+        model = model.cuda()
+        self.model = model
+        # self.domain_adv = nn.DataParallel(self.domain_adv, device_ids=self.gpu_devices).cuda()
     def _create_optimizer(self):
         lr = self.config.optim_params.learning_rate
         momentum = self.config.optim_params.momentum
@@ -229,18 +232,22 @@ class FixDANNAgent(BaseAgent):
         params_bn, _ = torchutils.split_params_by_name(self.model, "bn")
         parameters.append({"params": params_bn, "weight_decay": 0.0})
         # conv layer: small lr
-        _, params_conv = torchutils.split_params_by_name(self.model, ["fc", "bn", "head", "bottleneck"])
+        _, params_conv = torchutils.split_params_by_name(self.model, ["fc", "bn", "head", "bottleneck", "project_head"])
         if conv_lr_ratio:
             parameters[0]["lr"] = lr * conv_lr_ratio
             parameters.append({"params": params_conv, "lr": lr * conv_lr_ratio})
         else:
             parameters.append({"params": params_conv})
         # fc layer
-        params_fc, _ = torchutils.split_params_by_name(self.model, ["fc", "bottleneck", "head"])
+        params_fc, _ = torchutils.split_params_by_name(self.model, ["fc", "bottleneck", "head", "project_head"])
         parameters.append({"params": params_fc})
-        # parameters = self.model.get_parameters()
+        
+        # discriminator
+        params_discri, _ = torchutils.split_params_by_name(self.domain_adv, "domain_discriminator")
+        parameters.append({"params": params_discri})
+
         self.optim = torch.optim.SGD(
-            parameters+self.domain_discri.get_parameters(),
+            parameters,
             lr=lr,
             weight_decay=weight_decay,
             momentum=momentum,
@@ -340,7 +347,7 @@ class FixDANNAgent(BaseAgent):
         model.eval()
         pred_label = []
         with torch.no_grad():
-            for (_, image, label) in iter(target_loader):
+            for i, (_, image, label) in enumerate(target_loader):
                 image = image.cuda()
                 output = model(image)
                 pred = torch.argmax(output, dim=1)
@@ -386,8 +393,8 @@ class FixDANNAgent(BaseAgent):
             self._init_memory_bank()
         # train preparation
         
-        self.model.train()
-        self.domain_adv.train()
+        self.model = self.model.train()
+        self.domain_adv = self.domain_adv.train()
         
         end = time.time()
 
@@ -501,16 +508,16 @@ class FixDANNAgent(BaseAgent):
                     # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
                 elif ls.split("-")[0] == "I2M":
-                    # mix_source_loss = Entropy()(logits_source_mix)
+                    mix_source_loss = Entropy()(logits_source_mix)
                     mix_target_loss = Entropy()(logits_target_mix)
-                    mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
+                    # mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
                     # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                     
                 loss_part = loss_weight[ind] * loss_part
                 losses[ind].update(loss_part.item(), images_source.size(0))
                 loss = loss + loss_part
-            loss += 0.5 * transfer_loss
+            loss += 0 * transfer_loss
             total_loss.update(loss.item(), images_source.size(0))
             
             # Backpropagation
@@ -539,16 +546,16 @@ class FixDANNAgent(BaseAgent):
                 proto_source.update(idx, update_proto)
 
             # target proto
-            for idx in range(self.num_class):
-                if len(feat_target[labels_target == idx]) == 0:
-                        continue
-                tmp_proto = feat_target[labels_target == idx].mean(0)
-                idx = torch.ones(1, dtype=torch.int64) * idx
-                idx = idx.cuda()
-                memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
-                old_proto = memory_bank_proto_target.at_idxs(idx)
-                update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
-                memory_bank_proto_target.update(idx, update_proto)
+            # for idx in range(self.num_class):
+            #     if len(feat_target[labels_target == idx]) == 0:
+            #             continue
+            #     tmp_proto = feat_target[labels_target == idx].mean(0)
+            #     idx = torch.ones(1, dtype=torch.int64) * idx
+            #     idx = idx.cuda()
+            #     memory_bank_proto_target = self.get_attr("target", "memory_bank_proto")
+            #     old_proto = memory_bank_proto_target.at_idxs(idx)
+            #     update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
+            #     memory_bank_proto_target.update(idx, update_proto)
             
             # mix proto
             proto_source = self.get_attr("source", "memory_bank_proto")
@@ -576,7 +583,7 @@ class FixDANNAgent(BaseAgent):
     # Validate
     @torch.no_grad()
     def validate(self):
-        self.model.eval()
+        self.model = self.model.eval()
 
         # Domain Adaptation
         if self.cls:
@@ -612,7 +619,7 @@ class FixDANNAgent(BaseAgent):
             images = images.cuda()
             labels = labels.cuda()
 
-            f, feat, output = self.model(images)
+            output = self.model(images)
             prob = F.softmax(output, dim=-1)
 
             loss = self.criterion(output, labels)
@@ -747,7 +754,7 @@ class FixDANNAgent(BaseAgent):
             return
         else:
             self.is_features_computed = True
-        self.model.eval()
+        self.model = self.model.eval()
 
         for domain in ("source", "target"):
             train_loader = self.get_attr(domain, "train_init_loader")
@@ -807,28 +814,28 @@ class FixDANNAgent(BaseAgent):
                         memory_bank_proto.update(idx, update_proto)
                 # TODO: Target - init target prototype
                 elif domain_name == "target" and self.config.model_params.mix:
-                    k = self.num_class
-                    init_centroids = self.get_attr("source", "memory_bank_proto").as_tensor()
-                    _, target_cluster_centroids, _ = torch_kmeans(
-                        k_list=[k],
-                        data=feat,
-                        init_centroids=init_centroids,
-                        seed=self.current_epoch + self.current_iteration)
-                    new_tar_proto = target_cluster_centroids[0]
-                    memory_bank_proto.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
+                    # k = self.num_class
+                    # init_centroids = self.get_attr("source", "memory_bank_proto").as_tensor()
+                    # _, target_cluster_centroids, _ = torch_kmeans(
+                    #     k_list=[k],
+                    #     data=feat,
+                    #     init_centroids=init_centroids,
+                    #     seed=self.current_epoch + self.current_iteration)
+                    # new_tar_proto = target_cluster_centroids[0]
+                    # memory_bank_proto.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
                     
                     
-                    # labels = self.get_attr("target", "pseudo_label")[idx].cuda()
-                    # for idx in range(self.num_class):
-                    #     if len(feat[labels == idx]) == 0:
-                    #         continue
-                    #     idx = torch.ones(1, dtype=torch.int64) * idx
-                    #     idx = idx.cuda()
-                    #     old_proto = memory_bank_proto.at_idxs(idx)
-                    #     new_proto = feat[labels == idx].mean(0).view(1,-1)
-                    #     update_proto = new_proto
-                    #     # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
-                    #     memory_bank_proto.update(idx, update_proto)
+                    labels = self.get_attr("target", "pseudo_label")[idx].cuda()
+                    for idx in range(self.num_class):
+                        if len(feat[labels == idx]) == 0:
+                            continue
+                        idx = torch.ones(1, dtype=torch.int64) * idx
+                        idx = idx.cuda()
+                        old_proto = memory_bank_proto.at_idxs(idx)
+                        new_proto = feat[labels == idx].mean(0).view(1,-1)
+                        update_proto = new_proto
+                        # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
+                        memory_bank_proto.update(idx, update_proto)
                 
                 if self.config.model_params.mix:
                     self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)

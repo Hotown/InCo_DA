@@ -3,7 +3,7 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "webcam->amazon",
-  "agent": "DEVAgent",
+  "agent": "FixDANNAgent",
   "data_params": {
     "name": "office",
     "source": "webcam",
@@ -12,7 +12,6 @@
     "aug": "aug_0"
   },
   "num_epochs": 500,
-  "warm_up": 5,
   "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,

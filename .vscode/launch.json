@@ -13,7 +13,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--config",
-                "config/office/D-A-all.json"
+                "config/office/W-A-all.json"
             ]
         }
     ]

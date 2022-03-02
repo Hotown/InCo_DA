@@ -3,7 +3,7 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "amazon->dslr",
-  "agent": "DEVAgent",
+  "agent": "FixCL4Agent",
   "data_params": {
     "name": "office",
     "source": "amazon",
