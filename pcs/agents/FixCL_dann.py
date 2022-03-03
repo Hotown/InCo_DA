@@ -1,11 +1,11 @@
 import enum
 import os
+import sys
 import time
 from curses.ascii import BS
 from tkinter import image_names
 from xml.sax.handler import feature_external_ges
 
-import sys
 import models.builder
 import numpy as np
 import torch
@@ -14,10 +14,12 @@ import torch.nn.functional as F
 import torchvision
 from models import (CrossEntropyLabelSmooth, Entropy, MemoryBank, torch_kmeans,
                     update_data_memory)
+from pcs.models.ssda import DomainAdversarialLoss
 from sklearn import metrics
 from tqdm import tqdm
-from pcs.models.ssda import DomainAdversarialLoss
-from utils import AverageMeter, ProgressMeter, datautils, get_model, torchutils, accuracy
+from utils import (AverageMeter, ProgressMeter, accuracy, datautils, get_model,
+                   torchutils)
+
 from . import BaseAgent
 
 ls_abbr = {
@@ -395,11 +397,11 @@ class FixDANNAgent(BaseAgent):
 
         if self.config.pretrained_exp_dir is None and self.current_epoch == 1:
             self._init_memory_bank()
-        # train preparation
         
+        # train preparation
         self.model = self.model.train()
         self.domain_adv = self.domain_adv.train()
-        
+        accumulation_steps = 2
         end = time.time()
 
         # TODO: Target - update target labels before every epoch
@@ -524,12 +526,16 @@ class FixDANNAgent(BaseAgent):
             loss += transfer_loss
             total_loss.update(loss.item(), images_source.size(0))
             
-            # Backpropagation
-            self.optim.zero_grad()
+            # grad accumulation
+            loss = loss / accumulation_steps
+
             if len(loss_list) and loss != 0:
                 loss.backward()
-            self.optim.step()
-            
+            # Backpropagation
+            if batch_i % accumulation_steps == 0:
+                self.optim.step()
+                self.optim.zero_grad()
+                
             # Update memory bank
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
@@ -816,6 +822,7 @@ class FixDANNAgent(BaseAgent):
                         update_proto = new_proto
                         # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
                         memory_bank_proto.update(idx, update_proto)
+
                 # TODO: Target - init target prototype
                 elif domain_name == "target" and self.config.model_params.mix:
                     k = self.num_class
