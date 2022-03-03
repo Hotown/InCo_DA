@@ -3,14 +3,14 @@
     "exp_base": "./exps",
     "exp_name": "officehome",
     "exp_id": "Product-Clipart",
-    "agent": "DEVAgent",
+    "agent": "FixDANNAgent",
     "data_params": {
         "name": "office_home",
         "source": "Product",
         "target": "Clipart",
         "aug": "aug_0"
     },
-    "num_epochs": 500,
+    "num_epochs": 100,
     "warm_up": 10,
     "steps_epoch": null,
     "optim_params": {
@@ -47,7 +47,7 @@
             1,
             1,
             1,
-            0.05,
+            0,
             0.05
         ],
         "clus": {
