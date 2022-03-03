@@ -86,13 +86,10 @@ class Classifier(nn.Module):
         predict_feature = self.bottleneck(f)
         predictions = self.head(predict_feature)
         # if self.training:
-        #     return feature, predictions
+        #     return predict_feature, project_feature, predictions
         # else:
         #     return predictions
-        if self.training:
-            return predict_feature, project_feature, predictions
-        else:
-            return predictions
+        return predict_feature, project_feature, predictions
     
     def get_parameters(self, base_lr=1.0) -> List[Dict]:
         """A parameter list which decides optimization hyper-parameters,

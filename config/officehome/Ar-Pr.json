@@ -3,14 +3,14 @@
     "exp_base": "./exps",
     "exp_name": "officehome",
     "exp_id": "Art->Product",
-    "agent": "DEVAgent",
+    "agent": "FixDANNAgent",
     "data_params": {
       "name": "office_home",
       "source": "Art",
       "target": "Product",
       "aug": "aug_0"
     },
-    "num_epochs": 500,
+    "num_epochs": 100,
     "warm_up": 10,
     "steps_epoch": null,
     "optim_params": {

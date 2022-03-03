@@ -11,14 +11,14 @@
     "fewshot": "",
     "aug": "aug_0"
   },
-  "num_epochs": 500,
+  "num_epochs": 20,
   "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
     "patience": 8,
-    "batch_size_lbd": 64,
-    "batch_size": 64,
+    "batch_size_lbd": 32,
+    "batch_size": 32,
     "decay": true,
     "weight_decay": 5e-4,
     "cls_update": true
@@ -36,10 +36,9 @@
       "cls-so",
       "proto-each",
       "I2M-cross",
-      "tgt-condentmax",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 1, 0, 0.05],
+    "weight": [1, 1, 1, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],

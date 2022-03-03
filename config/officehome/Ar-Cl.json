@@ -3,14 +3,14 @@
     "exp_base": "./exps",
     "exp_name": "officehome",
     "exp_id": "Art->Clipart",
-    "agent": "DEVAgent",
+    "agent": "FixDANNAgent",
     "data_params": {
         "name": "office_home",
         "source": "Art",
         "target": "Clipart",
         "aug": "aug_0"
     },
-    "num_epochs": 500,
+    "num_epochs": 100,
     "warm_up": 10,
     "steps_epoch": null,
     "optim_params": {
@@ -27,10 +27,7 @@
         "mlp": true,
         "mix": true,
         "out_dim": 512,
-        "version": "pretrain-resnet50",
-        "load_weight": "src-tgt",
-        "load_weight_thres": 30,
-        "load_weight_epoch": 5
+        "version": "pretrain-resnet50"
     },
     "loss_params": {
         "temp": 0.1,
@@ -38,10 +35,9 @@
             "cls-so",
             "proto-each",
             "I2M-cross",
-            "tgt-condentmax",
             "tgt-entmin"
         ],
-        "weight": [1, 1, 1, 0.05, 0.05],
+        "weight": [1, 1, 1, 0.05],
         "clus": {
             "kmeans_freq": 1,
             "type": [
