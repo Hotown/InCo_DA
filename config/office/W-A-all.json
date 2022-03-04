@@ -17,14 +17,14 @@
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
     "patience": 8,
-    "batch_size_lbd": 32,
-    "batch_size": 32,
+    "batch_size_lbd": 64,
+    "batch_size": 64,
     "decay": true,
     "weight_decay": 5e-4,
     "cls_update": true
   },
   "model_params": {
-    "m": 0.9,
+    "m": 0.65,
     "mlp": true,
     "mix": true,
     "out_dim": 512,

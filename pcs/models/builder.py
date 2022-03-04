@@ -91,29 +91,29 @@ class ImageClassifier(ClassifierBase):
         )
         super(ImageClassifier, self).__init__(backbone, num_classes, bottleneck, bottleneck_dim, **kwargs)
         
-class DomainDiscriminator(nn.Sequential):
-    def __init__(self, in_feature: int, hidden_size: int, batch_norm=True):
-        if batch_norm:
-            super(DomainDiscriminator, self).__init__(
-                nn.Linear(in_feature, hidden_size),
-                nn.BatchNorm1d(hidden_size),
-                nn.ReLU(),
-                nn.Linear(hidden_size, hidden_size),
-                nn.BatchNorm1d(hidden_size),
-                nn.ReLU(),
-                nn.Linear(hidden_size, 1),
-                nn.Sigmoid()
-            )
-        else:
-            super(DomainDiscriminator, self).__init__(
-                nn.Linear(in_feature, hidden_size),
-                nn.ReLU(inplace=True),
-                nn.Dropout(0.5),
-                nn.Linear(hidden_size, hidden_size),
-                nn.ReLU(inplace=True),
-                nn.Dropout(0.5),
-                nn.Linear(hidden_size, 1),
-                nn.Sigmoid()
-            )
-    def get_parameters(self) -> List[Dict]:
-        return [{"params": self.parameters(), "lr": 1.}]
+# class DomainDiscriminator(nn.Sequential):
+#     def __init__(self, in_feature: int, hidden_size: int, batch_norm=True):
+#         if batch_norm:
+#             super(DomainDiscriminator, self).__init__(
+#                 nn.Linear(in_feature, hidden_size),
+#                 nn.BatchNorm1d(hidden_size),
+#                 nn.ReLU(),
+#                 nn.Linear(hidden_size, hidden_size),
+#                 nn.BatchNorm1d(hidden_size),
+#                 nn.ReLU(),
+#                 nn.Linear(hidden_size, 1),
+#                 nn.Sigmoid()
+#             )
+#         else:
+#             super(DomainDiscriminator, self).__init__(
+#                 nn.Linear(in_feature, hidden_size),
+#                 nn.ReLU(inplace=True),
+#                 nn.Dropout(0.5),
+#                 nn.Linear(hidden_size, hidden_size),
+#                 nn.ReLU(inplace=True),
+#                 nn.Dropout(0.5),
+#                 nn.Linear(hidden_size, 1),
+#                 nn.Sigmoid()
+#             )
+#     def get_parameters(self) -> List[Dict]:
+#         return [{"params": self.parameters(), "lr": 1.}]
