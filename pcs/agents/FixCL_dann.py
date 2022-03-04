@@ -401,7 +401,7 @@ class FixDANNAgent(BaseAgent):
         # train preparation
         self.model = self.model.train()
         self.domain_adv = self.domain_adv.train()
-        accumulation_steps = 1
+        accumulation_steps = 4
         end = time.time()
 
         # TODO: Target - update target labels before every epoch
