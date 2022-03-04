@@ -11,14 +11,14 @@
       "fewshot": "",
       "aug": "aug_0"
     },
-    "num_epochs": 20,
+    "num_epochs": 50,
     "steps_epoch": null,
     "optim_params": {
       "learning_rate": 0.01,
       "conv_lr_ratio": 0.1,
       "patience": 10,
-      "batch_size_lbd": 16,
-      "batch_size": 16,
+      "batch_size_lbd": 32,
+      "batch_size": 32,
       "decay": true,
       "weight_decay": 5e-4,
       "cls_update": true
