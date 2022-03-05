@@ -30,7 +30,7 @@
       "version": "pretrain-resnet50"
     },
     "loss_params": {
-      "T": 0.1,
+      "T": 0.5,
       "temp": 0.1,
       "loss": [
         "cls-so",

@@ -112,6 +112,7 @@ class FixDANNAgent(BaseAgent):
         self.num_class = datautils.get_class_num(
             f'data/splits/{name}/{domain["source"]}.txt'
         )
+        self.logger.info(f"Class Num: {self.num_class}")
         self.class_map = datautils.get_class_map(
             f'data/splits/{name}/{domain["target"]}.txt'
         )
@@ -401,7 +402,7 @@ class FixDANNAgent(BaseAgent):
         # train preparation
         self.model = self.model.train()
         self.domain_adv = self.domain_adv.train()
-        accumulation_steps = 4
+        accumulation_steps = self.config.optim_params.accumulation_step
         end = time.time()
 
         # TODO: Target - update target labels before every epoch
@@ -473,7 +474,7 @@ class FixDANNAgent(BaseAgent):
             logits_target_mix /= self.t
             
             # discriminator
-            transfer_loss = self.domain_adv(f_source, f_target)
+            # transfer_loss = self.domain_adv(f_source, f_target)
             
             # Compute Loss
             loss = torch.tensor(0).cuda()
@@ -483,6 +484,8 @@ class FixDANNAgent(BaseAgent):
                 loss_part = torch.tensor(0).cuda()
                 if ls == "cls-so":
                     loss_part = self.criterion(predict_source, labels_source)
+                elif ls == "transfer":
+                    loss_part = self.domain_adv(f_source, f_target)
                 elif ls == "tgt-entmin":
                     loss_part = Entropy()(predict_target)
                 elif ls == "tgt-condentmax":
@@ -519,11 +522,10 @@ class FixDANNAgent(BaseAgent):
                     # mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
                     # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
-                    
                 loss_part = loss_weight[ind] * loss_part
                 losses[ind].update(loss_part.item(), images_source.size(0))
                 loss = loss + loss_part
-            loss += transfer_loss
+            # loss += transfer_loss
             total_loss.update(loss.item(), images_source.size(0))
             
             # grad accumulation
