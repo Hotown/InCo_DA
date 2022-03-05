@@ -132,10 +132,11 @@ def process_config(config_json, override_dotmap=None):
 
 
 def setup_logging(log_dir):
-    log_file_format = (
+    bug_file_format = (
         "[%(levelname)s] %(asctime)s: %(message)s in %(pathname)s:%(lineno)d"
     )
     log_console_format = "[%(levelname)s]: %(message)s"
+    log_file_format = log_console_format
 
     # Main logger
     main_logger = logging.getLogger()
@@ -155,7 +156,7 @@ def setup_logging(log_dir):
         "{}exp_error.log".format(log_dir), maxBytes=10 ** 6, backupCount=5
     )
     exp_errors_file_handler.setLevel(logging.WARNING)
-    exp_errors_file_handler.setFormatter(Formatter(log_file_format))
+    exp_errors_file_handler.setFormatter(Formatter(bug_file_format))
 
     main_logger.addHandler(console_handler)
     main_logger.addHandler(exp_file_handler)

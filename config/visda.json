@@ -3,7 +3,7 @@
     "exp_base": "./exps",
     "exp_name": "visda",
     "exp_id": "train->val",
-    "agent": "FixCL2Agent",
+    "agent": "FixDANNAgent",
     "data_params": {
       "name": "visda17",
       "source": "train",
@@ -11,48 +11,37 @@
       "fewshot": "",
       "aug": "aug_0"
     },
-    "num_epochs": 500,
+    "num_epochs": 200,
     "steps_epoch": null,
     "optim_params": {
       "learning_rate": 0.01,
       "conv_lr_ratio": 0.1,
       "patience": 10,
-      "batch_size_lbd": 64,
-      "batch_size": 64,
-      "decay": false,
+      "batch_size_lbd": 32,
+      "batch_size": 32,
+      "decay": true,
       "weight_decay": 5e-4,
       "cls_update": true
     },
     "model_params": {
-      "m": 0.5,
-      "mlp": false,
+      "m": 0.9,
+      "mlp": true,
       "mix": true,
       "out_dim": 512,
-      "version": "pretrain-resnet101",
-      "load_weight": "src-tgt",
-      "load_weight_thres": 50,
-      "load_weight_epoch": 3
+      "version": "pretrain-resnet101"
     },
     "loss_params": {
-      "thres_src": 0.99,
-      "thres_tgt": 0.99,
       "temp": 0.1,
       "loss": [
         "cls-so",
-        "proto-fix",
+        "proto-each",
         "I2M-cross",
-        "semi-condentmax",
-        "semi-entmin",
-        "tgt-condentmax",
         "tgt-entmin"
       ],
       "weight": [
         1,
         1,
         1,
-        0.05,
-        0.05,
-        0.05,
         0.05
       ],
       "clus": {

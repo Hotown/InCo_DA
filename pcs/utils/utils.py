@@ -208,7 +208,7 @@ def get_model_names():
         name for name in models.__dict__
         if name.islower and not name.startswith('__')
         and callable(models.__dict__[name])
-    ) + timm.list_models()
+    )
 
 def get_model(model_name, pretrain=True):
     if model_name in models.__dict__:
