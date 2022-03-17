@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from models import (CrossEntropyLabelSmooth, Entropy, MemoryBank, torch_kmeans,
-                    update_data_memory, CrossEntropyMix)
+                    update_data_memory)
 from pcs.models.ssda import DomainAdversarialLoss
 from sklearn import metrics
 from tqdm import tqdm
@@ -24,7 +24,6 @@ from . import BaseAgent
 
 ls_abbr = {
     "cls-so": "cls",
-    "cls-tgt": "tCLS",
     "proto-each": "P",
     "cls-info": "info",
     "I2C-cross": "C",
@@ -36,7 +35,7 @@ ls_abbr = {
 }
 
 
-class DEVAgent(BaseAgent):
+class FixCLMultiAgent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -47,12 +46,12 @@ class DEVAgent(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(DEVAgent, self).__init__(config)
+        super(FixCLMultiAgent, self).__init__(config)
 
         # for MIM
-        self.momentum_softmax_target = torchutils.MomentumSoftmax(
-            self.num_class, m=len(self.get_attr("target", "train_loader"))
-        )
+        # self.momentum_softmax_target = torchutils.MomentumSoftmax(
+        #     self.num_class, m=len(self.get_attr("target", "train_loader"))
+        # )
 
         self.domain_m_dict = {
             "source": 0.8,
@@ -154,7 +153,6 @@ class DEVAgent(BaseAgent):
             )
             train_labels = torch.from_numpy(train_dataset.labels).detach().cuda()
 
-            self.set_attr(domain_name, "train_dataset", train_dataset)
             self.set_attr(domain_name, "train_ordered_labels", train_labels)
             self.set_attr(domain_name, "train_loader", train_loader)
             self.set_attr(domain_name, "train_init_loader", train_init_loader)
@@ -209,7 +207,7 @@ class DEVAgent(BaseAgent):
                 backbone = get_model(version, pretrain=pretrained)
             else:
                 backbone = get_model(version, pretrain=False)
-            model = models.builder.FixCL(backbone, self.num_class, project_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
+            model = models.builder.FixCL(backbone, self.num_class, bottleneck_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
             print(model)
         else:
             raise NotImplementedError
@@ -383,10 +381,10 @@ class DEVAgent(BaseAgent):
 
         batch_time = AverageMeter('Time', ':6.3f')
         # load_time = AverageMeter('Load', ':6.3f')
-        total_loss = AverageMeter('Loss', ':2.2f')
+        total_loss = AverageMeter('Loss', ':.4e')
         losses = []
         for loss_item in loss_list:
-            losses.append(AverageMeter(loss_item, ':2.2f'))
+            losses.append(AverageMeter(loss_item, ':.4e'))
         acc = AverageMeter('Acc', ':6.2f')
         progress_list = [batch_time, total_loss]
         progress_list = progress_list+losses
@@ -419,11 +417,6 @@ class DEVAgent(BaseAgent):
                 init_centroids=init_centroids,
                 seed=self.current_epoch + self.current_iteration)
             
-            # compare with true target label
-            cluster_correct = self.get_attr("target", "train_ordered_labels").eq(target_labels).sum().item()
-            cluster_acc = cluster_correct / len(target_labels[0])
-            self.logger.info(f"cluster acc={cluster_correct}/{len(target_labels[0])}({100. * cluster_acc:.3f}%)")
-            
             # tar_proto = memory_bank_proto_target.as_tensor()
             # new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
             # memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
@@ -452,28 +445,18 @@ class DEVAgent(BaseAgent):
             indices_target, images_target, _ = next(target_iter)
             indices_target = indices_target.cuda()
             images_target = images_target.cuda()
+            labels_target = target_labels.squeeze()[indices_target]
+            # labels_target = target_labels[indices_target].cuda()
             
             f_source, feat_source, predict_source = self.model(images_source)
             f_target, feat_target, predict_target = self.model(images_target)
-            labels_target = target_labels.squeeze()[indices_target]
-            
-            predict_tgt_label = torch.max(predict_target, dim=1)[1]
-            one_hot_cluster = F.one_hot(labels_target, num_classes=self.num_class)
-            one_hot_predict = F.one_hot(predict_tgt_label, num_classes=self.num_class)
-            labels_mix = 0.2 * one_hot_cluster + 0.8 * one_hot_predict
-            # labels_target = 0.3 * labels_target + 0.7 * predict_tgt_label
-            # if self.current_epoch > 5:
-            #     thr = 0.99
-            #     mask = torch.max(predict_target, dim=1)[0] > thr
-            #     predict_tgt_label = torch.max(predict_target, dim=1)[1]
-            #     labels_target = labels_target * ~mask + predict_tgt_label * mask
-            
             feat_source = F.normalize(feat_source, dim=1)
             feat_target = F.normalize(feat_target, dim=1)
             
             # proto-each loss: In domain contrastive loss
             proto_source = self.get_attr("source", "memory_bank_proto") # K x C
             logits_source = torch.einsum('nc,kc->nk',[feat_source, proto_source.as_tensor()]) # N = bt_size, K = class_num
+
             logits_source /= self.t
 
             proto_target = self.get_attr("target", "memory_bank_proto")
@@ -483,6 +466,7 @@ class DEVAgent(BaseAgent):
             # I2M Loss: Cross domain contrastive loss
             mix_source = self.get_attr("source", "memory_bank_mix")
             mix_target = self.get_attr("target", "memory_bank_mix")
+            
             
             logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_target.as_tensor()])
             logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_source.as_tensor()])
@@ -498,17 +482,13 @@ class DEVAgent(BaseAgent):
                 if self.current_epoch < loss_warmup[ind] or self.current_epoch >= loss_giveup[ind]:
                     continue
                 loss_part = torch.tensor(0).cuda()
-                if ls == "cls-so" and loss_weight[ind] != 0:
+                if ls == "cls-so":
                     loss_part = self.criterion(predict_source, labels_source)
-                    # loss_target = CrossEntropyMix(self.num_class)(predict_target, labels_mix)
-                    # loss_part += loss_target
-                elif ls == "cls-tgt" and loss_weight[ind] != 0:
-                    loss_part = CrossEntropyMix(self.num_class)(predict_target, labels_mix)
-                elif ls == "transfer" and loss_weight[ind] != 0:
+                elif ls == "transfer":
                     loss_part = self.domain_adv(f_source, f_target)
-                elif ls == "tgt-entmin" and loss_weight[ind] != 0:
+                elif ls == "tgt-entmin":
                     loss_part = Entropy()(predict_target)
-                elif ls == "tgt-condentmax" and loss_weight[ind] != 0:
+                elif ls == "tgt-condentmax":
                     bs = predict_target.size(0)
                     prob_target = F.softmax(predict_target, dim=1)
                     prob_mean_target = prob_target.sum(dim=0) / bs
@@ -530,16 +510,16 @@ class DEVAgent(BaseAgent):
                         )
                     )
                     loss_part = - entropy_cond
-                elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0:
+                elif ls.split("-")[0] == "proto":
                     proto_source_loss = nn.CrossEntropyLoss()(logits_source, labels_source)
                     proto_target_loss = nn.CrossEntropyLoss()(logits_target, labels_target)
                     # proto_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source, labels_source)
                     # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
-                elif ls.split("-")[0] == "I2M" and loss_weight[ind] != 0:
-                    # mix_source_loss = Entropy()(logits_source_mix)
+                elif ls.split("-")[0] == "I2M":
+                    mix_source_loss = Entropy()(logits_source_mix)
                     mix_target_loss = Entropy()(logits_target_mix)
-                    mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
+                    # mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
                     # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                 loss_part = loss_weight[ind] * loss_part
@@ -562,7 +542,6 @@ class DEVAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
-            # self._update_memory_bank("target", indices_target, data_memory)
             new_target_data = update_data_memory(data_memory, feat_target, m=self.m)
             self._update_memory_bank("target", indices_target, new_target_data)
             
@@ -578,7 +557,7 @@ class DEVAgent(BaseAgent):
                 update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
                 proto_source.update(idx, update_proto)
 
-            # update target proto
+            # target proto
             for idx in range(self.num_class):
                 if len(feat_target[labels_target == idx]) == 0:
                         continue
@@ -589,13 +568,7 @@ class DEVAgent(BaseAgent):
                 old_proto = memory_bank_proto_target.at_idxs(idx)
                 update_proto = update_data_memory(old_proto, tmp_proto.view(1, -1), m=self.m)
                 memory_bank_proto_target.update(idx, update_proto)
-                
-            # update target proto with mix label
-            # for ind, label in enumerate(labels_target):
-            #     t = feat_target[idx].repeat(labels_target.shape[1], 1) * label.unsqueeze(-1)
-                
-                
-                
+            
             # mix proto
             proto_source = self.get_attr("source", "memory_bank_proto")
             proto_target = self.get_attr("target", "memory_bank_proto")
@@ -618,6 +591,7 @@ class DEVAgent(BaseAgent):
             if batch_i % print_freq == 0:
                 progress.display(batch_i)
         print(torchutils.get_lr(self.optim, g_id=-1))
+        
     # Validate
     @torch.no_grad()
     def validate(self):
@@ -908,11 +882,9 @@ class DEVAgent(BaseAgent):
         mix_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
         self.set_attr("source", "memory_bank_mix", mix_source)
         self.set_attr("target", "memory_bank_mix", mix_target)
+        
         self.logger.info(f"Initialize mix memorybank done.")
 
-
-        
-        
     @torch.no_grad()
     def _update_memory_bank(self, domain_name, indices, new_data_memory):
         memory_bank_wrapper = self.get_attr(domain_name, "memory_bank_wrapper")

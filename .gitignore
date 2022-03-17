@@ -1,6 +1,5 @@
 # others
 exps/
-data/*
 cu101
 best.pth
 # Created by https://www.toptal.com/developers/gitignore/api/python

@@ -110,11 +110,11 @@ class FixDANNAgent(BaseAgent):
         raw = "raw"
 
         self.num_class = datautils.get_class_num(
-            f'data/splits/{name}/{domain["source"]}.txt'
+            f'data/{name}/{domain["source"]}.txt'
         )
         self.logger.info(f"Class Num: {self.num_class}")
         self.class_map = datautils.get_class_map(
-            f'data/splits/{name}/{domain["target"]}.txt'
+            f'data/{name}/{domain["target"]}.txt'
         )
 
         batch_size_dict = {
@@ -208,7 +208,7 @@ class FixDANNAgent(BaseAgent):
                 backbone = get_model(version, pretrain=pretrained)
             else:
                 backbone = get_model(version, pretrain=False)
-            model = models.builder.FixCL(backbone, self.num_class, bottleneck_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
+            model = models.builder.FixCL(backbone, self.num_class, project_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
             print(model)
         else:
             raise NotImplementedError
@@ -382,10 +382,10 @@ class FixDANNAgent(BaseAgent):
 
         batch_time = AverageMeter('Time', ':6.3f')
         # load_time = AverageMeter('Load', ':6.3f')
-        total_loss = AverageMeter('Loss', ':.4e')
+        total_loss = AverageMeter('Loss', ':2.2f')
         losses = []
         for loss_item in loss_list:
-            losses.append(AverageMeter(loss_item, ':.4e'))
+            losses.append(AverageMeter(loss_item, ':2.2f'))
         acc = AverageMeter('Acc', ':6.2f')
         progress_list = [batch_time, total_loss]
         progress_list = progress_list+losses
@@ -418,6 +418,11 @@ class FixDANNAgent(BaseAgent):
                 init_centroids=init_centroids,
                 seed=self.current_epoch + self.current_iteration)
             
+            # compare with true target label
+            cluster_correct = self.get_attr("target", "train_ordered_labels").eq(target_labels).sum().item()
+            cluster_acc = cluster_correct / len(target_labels[0])
+            self.logger.info(f"cluster acc={cluster_correct}/{len(target_labels[0])}({100. * cluster_acc:.3f}%)")
+            
             # tar_proto = memory_bank_proto_target.as_tensor()
             # new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
             # memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
@@ -446,18 +451,23 @@ class FixDANNAgent(BaseAgent):
             indices_target, images_target, _ = next(target_iter)
             indices_target = indices_target.cuda()
             images_target = images_target.cuda()
-            labels_target = target_labels.squeeze()[indices_target]
-            # labels_target = target_labels[indices_target].cuda()
             
             f_source, feat_source, predict_source = self.model(images_source)
             f_target, feat_target, predict_target = self.model(images_target)
+            labels_target = target_labels.squeeze()[indices_target]
+            
+            # if self.current_epoch > 5:
+            #     thr = 0.99
+            #     mask = torch.max(predict_target, dim=1)[0] > thr
+            #     predict_tgt_label = torch.max(predict_target, dim=1)[1]
+            #     labels_target = labels_target * ~mask + predict_tgt_label * mask
+            
             feat_source = F.normalize(feat_source, dim=1)
             feat_target = F.normalize(feat_target, dim=1)
             
             # proto-each loss: In domain contrastive loss
             proto_source = self.get_attr("source", "memory_bank_proto") # K x C
             logits_source = torch.einsum('nc,kc->nk',[feat_source, proto_source.as_tensor()]) # N = bt_size, K = class_num
-
             logits_source /= self.t
 
             proto_target = self.get_attr("target", "memory_bank_proto")
@@ -482,13 +492,14 @@ class FixDANNAgent(BaseAgent):
                 if self.current_epoch < loss_warmup[ind] or self.current_epoch >= loss_giveup[ind]:
                     continue
                 loss_part = torch.tensor(0).cuda()
-                if ls == "cls-so":
+                if ls == "cls-so" and loss_weight[ind] != 0:
                     loss_part = self.criterion(predict_source, labels_source)
-                elif ls == "transfer":
+                    loss_part += self.criterion(predict_target, labels_target)
+                elif ls == "transfer" and loss_weight[ind] != 0:
                     loss_part = self.domain_adv(f_source, f_target)
-                elif ls == "tgt-entmin":
+                elif ls == "tgt-entmin" and loss_weight[ind] != 0:
                     loss_part = Entropy()(predict_target)
-                elif ls == "tgt-condentmax":
+                elif ls == "tgt-condentmax" and loss_weight[ind] != 0:
                     bs = predict_target.size(0)
                     prob_target = F.softmax(predict_target, dim=1)
                     prob_mean_target = prob_target.sum(dim=0) / bs
@@ -510,16 +521,16 @@ class FixDANNAgent(BaseAgent):
                         )
                     )
                     loss_part = - entropy_cond
-                elif ls.split("-")[0] == "proto":
+                elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0:
                     proto_source_loss = nn.CrossEntropyLoss()(logits_source, labels_source)
                     proto_target_loss = nn.CrossEntropyLoss()(logits_target, labels_target)
                     # proto_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source, labels_source)
                     # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
-                elif ls.split("-")[0] == "I2M":
-                    mix_source_loss = Entropy()(logits_source_mix)
+                elif ls.split("-")[0] == "I2M" and loss_weight[ind] != 0:
+                    # mix_source_loss = Entropy()(logits_source_mix)
                     mix_target_loss = Entropy()(logits_target_mix)
-                    # mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
+                    mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
                     # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                 loss_part = loss_weight[ind] * loss_part
@@ -542,6 +553,7 @@ class FixDANNAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
+            # self._update_memory_bank("target", indices_target, data_memory)
             new_target_data = update_data_memory(data_memory, feat_target, m=self.m)
             self._update_memory_bank("target", indices_target, new_target_data)
             
@@ -589,9 +601,8 @@ class FixDANNAgent(BaseAgent):
             
             print_freq = 10
             if batch_i % print_freq == 0:
-                print(torchutils.get_lr(self.optim, g_id=-1))
                 progress.display(batch_i)
-               
+        print(torchutils.get_lr(self.optim, g_id=-1))
     # Validate
     @torch.no_grad()
     def validate(self):
@@ -884,6 +895,9 @@ class FixDANNAgent(BaseAgent):
         self.set_attr("target", "memory_bank_mix", mix_target)
         self.logger.info(f"Initialize mix memorybank done.")
 
+
+        
+        
     @torch.no_grad()
     def _update_memory_bank(self, domain_name, indices, new_data_memory):
         memory_bank_wrapper = self.get_attr(domain_name, "memory_bank_wrapper")

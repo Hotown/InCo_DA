@@ -22,7 +22,6 @@ class Entropy(nn.Module):
         else:
             return en
         
-
 class CrossEntropyLabelSmooth(nn.Module):
     def __init__(self, num_classes, epsilon=0.1, use_gpu=True, size_average=True):
         super(CrossEntropyLabelSmooth, self).__init__()
@@ -43,8 +42,26 @@ class CrossEntropyLabelSmooth(nn.Module):
             loss = (- targets * log_probs).sum(1)
         return loss
 
-class GradientReverseFunction(Function):
+
+class CrossEntropyMix(nn.Module):
+    def __init__(self, num_classes, use_gpu=True, size_average=True):
+        super(CrossEntropyMix, self).__init__()
+        self.num_classes = num_classes
+        self.use_gpu = use_gpu
+        self.size_average = size_average
+        self.logsoftmax = nn.LogSoftmax(dim=1)
     
+    def forward(self, inputs, targets):
+        log_probs = self.logsoftmax(inputs)
+        if self.use_gpu:
+            targets = targets.cuda()
+        if self.size_average:
+            loss = (-targets * log_probs).mean(0).sum()
+        else:
+            loss = (- targets * log_probs).sum(1)
+        return loss
+
+class GradientReverseFunction(Function):
     @staticmethod
     def forward(ctx: Any, input: torch.Tensor, coeff: Optional[float] = 1.) -> torch.Tensor:
         ctx.coeff = coeff

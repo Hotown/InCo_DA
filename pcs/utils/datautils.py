@@ -194,7 +194,7 @@ datasets_path = {
     "office_home": "./data/officehome",
     "visda17": "./data/visda17",
     "domainnet": "./data/domainnet",
-    "imageclef": "./data/imageclef"
+    "imageclef": "/root/data/ImageCLEF"
 }
 
 
@@ -219,7 +219,7 @@ def create_dataset(
         transform = get_augmentation(image_transform, stat=stat, image_size=image_size)
 
     return Imagelists(
-        f"data/splits/{name}/{txt}.txt",
+        f"data/{name}/{txt}.txt",
         datasets_path[name],
         keep_in_mem=keep_in_mem,
         ret_index=ret_index,

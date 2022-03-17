@@ -13,7 +13,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--config",
-                "config/office/W-A-all.json"
+                "config/imageclef/C-P-all.json"
             ]
         }
     ]
