@@ -54,8 +54,8 @@ class FixDANNAgent(BaseAgent):
         )
 
         self.domain_m_dict = {
-            "source": 0.8,
-            "target": 0.2
+            "source": 0.3,
+            "target": 0.7
         }
 
         # init loss
@@ -437,11 +437,11 @@ class FixDANNAgent(BaseAgent):
             if not batch_i % len(target_loader):
                 target_iter = iter(target_loader)
 
-                if "tgt-condentmax" in self.config.loss_params.loss:
-                    momentum_prob_target = (
-                        self.momentum_softmax_target.softmax_vector.cuda()
-                    )
-                    self.momentum_softmax_target.reset()
+                # if "tgt-condentmax" in self.config.loss_params.loss:
+                #     momentum_prob_target = (
+                #         self.momentum_softmax_target.softmax_vector.cuda()
+                #     )
+                #     self.momentum_softmax_target.reset()
 
             indices_source, images_source, labels_source = next(source_iter)
             indices_source = indices_source.cuda()
@@ -456,11 +456,6 @@ class FixDANNAgent(BaseAgent):
             f_target, feat_target, predict_target = self.model(images_target)
             labels_target = target_labels.squeeze()[indices_target]
             
-            # if self.current_epoch > 5:
-            #     thr = 0.99
-            #     mask = torch.max(predict_target, dim=1)[0] > thr
-            #     predict_tgt_label = torch.max(predict_target, dim=1)[1]
-            #     labels_target = labels_target * ~mask + predict_tgt_label * mask
             
             feat_source = F.normalize(feat_source, dim=1)
             feat_target = F.normalize(feat_target, dim=1)
@@ -480,6 +475,7 @@ class FixDANNAgent(BaseAgent):
             
             logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_target.as_tensor()])
             logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_source.as_tensor()])
+            # logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_target.as_tensor()])
             logits_source_mix /= self.t
             logits_target_mix /= self.t
             
@@ -494,49 +490,21 @@ class FixDANNAgent(BaseAgent):
                 loss_part = torch.tensor(0).cuda()
                 if ls == "cls-so" and loss_weight[ind] != 0:
                     loss_part = self.criterion(predict_source, labels_source)
-                    loss_part += self.criterion(predict_target, labels_target)
                 elif ls == "transfer" and loss_weight[ind] != 0:
                     loss_part = self.domain_adv(f_source, f_target)
                 elif ls == "tgt-entmin" and loss_weight[ind] != 0:
                     loss_part = Entropy()(predict_target)
-                elif ls == "tgt-condentmax" and loss_weight[ind] != 0:
-                    bs = predict_target.size(0)
-                    prob_target = F.softmax(predict_target, dim=1)
-                    prob_mean_target = prob_target.sum(dim=0) / bs
-                    
-                    # update momentum
-                    self.momentum_softmax_target.update(
-                        prob_mean_target.cpu().detach(), bs
-                    )
-                    
-                    # get momentum probablity
-                    momentum_prob_target = (
-                        self.momentum_softmax_target.softmax_vector.cuda()
-                    )
-                    
-                    # compute loss
-                    entropy_cond = - torch.sum(
-                        prob_mean_target * torch.log(
-                            momentum_prob_target + 1e-5
-                        )
-                    )
-                    loss_part = - entropy_cond
                 elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0:
                     proto_source_loss = nn.CrossEntropyLoss()(logits_source, labels_source)
                     proto_target_loss = nn.CrossEntropyLoss()(logits_target, labels_target)
-                    # proto_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source, labels_source)
-                    # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
                 elif ls.split("-")[0] == "I2M" and loss_weight[ind] != 0:
-                    # mix_source_loss = Entropy()(logits_source_mix)
                     mix_target_loss = Entropy()(logits_target_mix)
                     mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
-                    # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                 loss_part = loss_weight[ind] * loss_part
                 losses[ind].update(loss_part.item(), images_source.size(0))
                 loss = loss + loss_part
-            # loss += transfer_loss
             total_loss.update(loss.item(), images_source.size(0))
             
             # grad accumulation

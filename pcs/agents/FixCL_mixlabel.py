@@ -36,7 +36,7 @@ ls_abbr = {
 }
 
 
-class DEVAgent(BaseAgent):
+class FixCLMixLabelAgent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -47,7 +47,7 @@ class DEVAgent(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(DEVAgent, self).__init__(config)
+        super(FixCLMixLabel, self).__init__(config)
 
         # for MIM
         self.momentum_softmax_target = torchutils.MomentumSoftmax(
@@ -530,7 +530,7 @@ class DEVAgent(BaseAgent):
                         )
                     )
                     loss_part = - entropy_cond
-                elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0:
+                elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0 and self.current_epoch % 2 == 0:
                     proto_source_loss = nn.CrossEntropyLoss()(logits_source, labels_source)
                     proto_target_loss = nn.CrossEntropyLoss()(logits_target, labels_target)
                     # proto_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source, labels_source)

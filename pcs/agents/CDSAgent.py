@@ -183,6 +183,7 @@ class CDSAgent(BaseAgent):
                 image_size=image_size,
             )
             src_dataset = self.get_attr("source", "train_dataset")
+
             (
                 self.fewshot_index_source,
                 self.fewshot_label_source,
@@ -196,12 +197,15 @@ class CDSAgent(BaseAgent):
                 image_transform=raw,
                 image_size=image_size,
             )
-            self.test_unl_loader_source = datautils.create_loader(
-                test_unl_dataset_source,
-                batch_size_dict["test"],
-                is_train=False,
-                num_workers=num_workers,
-            )
+
+            # self.test_unl_loader_source = datautils.create_loader(
+            #     test_unl_dataset_source,
+            #     batch_size_dict["test"],
+            #     is_train=False,
+            #     num_workers=num_workers,
+            # )
+
+            self.test_unl_loader_source = self.get_attr("source", "train_init_loader")
 
             # labels for fewshot
             train_len = self.get_attr("source", "train_len")

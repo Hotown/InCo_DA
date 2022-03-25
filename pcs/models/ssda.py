@@ -355,6 +355,9 @@ class SSDALossModule(torch.nn.Module):
         
     # TODO: use proto
     def _compute_proto_loss(self, domain, loss_type, t=0.05):
+        """
+        FixCL method
+        """
         loss = torch.Tensor([0]).cuda()
         if (loss_type.startswith("src") and domain == "target") or (
             loss_type.startswith("tgt") and domain == "source"

@@ -197,7 +197,6 @@ datasets_path = {
     "imageclef": "/root/data/ImageCLEF"
 }
 
-
 def create_dataset(
     name,
     domain,
@@ -217,7 +216,14 @@ def create_dataset(
     stat = f"{name}_{domain}" if use_mean_std else "imagenet"
     if image_transform is not None and isinstance(image_transform, str):
         transform = get_augmentation(image_transform, stat=stat, image_size=image_size)
-
+        
+    # return Imagelists(
+    #     f"data/splits/{name}/{txt}.txt",
+    #     datasets_path[name],
+    #     keep_in_mem=keep_in_mem,
+    #     ret_index=ret_index,
+    #     transform=transform,
+    # )
     return Imagelists(
         f"data/{name}/{txt}.txt",
         datasets_path[name],

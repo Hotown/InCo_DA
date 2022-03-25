@@ -3,7 +3,7 @@
     "exp_base": "./exps",
     "exp_name": "imageclef",
     "exp_id": "C->P",
-    "agent": "DEVAgent",
+    "agent": "FixDANNAgent",
     "data_params": {
       "name": "imageclef",
       "source": "c",
@@ -42,7 +42,7 @@
         "transfer",
         "tgt-entmin"
       ],
-      "weight": [0.5, 0.5, 0, 1, 1, 0],
+      "weight": [1, 0, 1, 1, 1, 0],
       "clus": {
         "kmeans_freq": 1,
         "type": ["each"],

@@ -6,14 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from models import (CosineClassifier, MemoryBank, SSDALossModule,
-                    compute_variance, loss_info, torch_kmeans,
-                    update_data_memory)
-from sklearn import metrics
-from torch.nn.modules.activation import ReLU
-from torch.nn.modules.linear import Linear
-from tqdm import tqdm
+                        compute_variance, loss_info, torch_kmeans,
+                        update_data_memory)
 from utils import (AverageMeter, datautils, is_div, per, reverse_domain,
-                   torchutils, utils)
+                       torchutils, utils)
+from sklearn import metrics
+from tqdm import tqdm
 
 from . import BaseAgent
 
@@ -24,7 +22,6 @@ ls_abbr = {
     "proto-tgt": "Pt",
     "cls-info": "info",
     "I2C-cross": "C",
-    "I2M-cross": "CM",
     "semi-condentmax": "sCE",
     "semi-entmin": "sE",
     "tgt-condentmax": "tCE",
@@ -64,7 +61,7 @@ class FixCLAgent(BaseAgent):
             self._init_memory_bank()
 
         # init statics
-        self._init_labels() 
+        self._init_labels()
         self._load_fewshot_to_cls_weight()
 
     def _define_task(self, config):
@@ -104,12 +101,12 @@ class FixCLAgent(BaseAgent):
                 lbl = torch.ones(1)*lbl
                 self.predict_ordered_labels_pseudo_source[ind] = lbl
         else:
-            self.source_labels = (
+            self.predict_ordered_labels_pseudo_source = (
                 torch.zeros(train_len_src, dtype=torch.long).detach().cuda() - 1
             )
-            for ind, _, lbl in self.get_attr("source", "train_loader"):
-                lbl = torch.ones(1, dtype=torch.long).cuda()*lbl.cuda()
-                self.source_labels[ind] = lbl
+            for ind, lbl in zip(self.fewshot_index_source, self.fewshot_label_source):
+                lbl = torch.ones(1)*lbl
+                self.predict_ordered_labels_pseudo_source[ind] = lbl
         self.predict_ordered_labels_pseudo_target = (
             torch.zeros(train_len_tgt, dtype=torch.long).detach().cuda() - 1
         )
@@ -264,15 +261,7 @@ class FixCLAgent(BaseAgent):
 
             if pretrained:
                 model = net_class(pretrained=pretrained)
-                if self.config.model_params.mlp:
-                    model.fc = nn.Sequential(
-                        nn.Linear(model.fc.in_features, model.fc.in_features),
-                        # nn.BatchNorm1d(model.fc.in_features),
-                        nn.ReLU(inplace=True),
-                        nn.Linear(model.fc.in_features, out_dim)
-                    )
-                else:
-                    model.fc = nn.Linear(model.fc.in_features, out_dim)
+                model.fc = nn.Linear(model.fc.in_features, out_dim)
                 torchutils.weights_init(model.fc)
             else:
                 model = net_class(pretrained=False, num_classes=out_dim)
@@ -374,16 +363,6 @@ class FixCLAgent(BaseAgent):
         self._load_fewshot_to_cls_weight()
         if self.fewshot:
             fewshot_index = torch.tensor(self.fewshot_index_source).cuda()
-        
-        # Mix: init target labels
-        if self.config.model_params.mix:
-            k = self.num_class
-            memory_bank_instance_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
-            target_labels, target_cluster_centroids, target_cluster_phi = torch_kmeans(
-                k_list=[k],
-                data=memory_bank_instance_target,
-                init_centroids=self.get_attr("source", "memory_bank_proto").as_tensor(),
-                seed=self.current_epoch + self.current_iteration)
 
         tqdm_batch = tqdm(
             total=num_batches, desc=f"[Epoch {self.current_epoch}]", leave=False
@@ -430,7 +409,7 @@ class FixCLAgent(BaseAgent):
 
                 if self.cls and domain_name == "source":
                     indices_lbd, images_lbd, labels_lbd = next(source_lbd_iter)
-                    indices_lbd = indices_lbd.cuda()
+                    indices_lbl = indices_lbd.cuda()
                     images_lbd = images_lbd.cuda()
                     labels_lbd = labels_lbd.cuda()
                     feat_lbd = self.model(images_lbd)
@@ -444,39 +423,18 @@ class FixCLAgent(BaseAgent):
                     )
 
                     indices_unl, images_unl, _ = next(loader_iter)
-                    if self.config.model_params.mix and domain_name == "target":
-                        labels_unl = target_labels.squeeze()[indices_unl]
                     images_unl = images_unl.cuda()
                     indices_unl = indices_unl.cuda()
                     feat_unl = self.model(images_unl)
                     feat_unl = F.normalize(feat_unl, dim=1)
                     out_unl = self.cls_head(feat_unl)
 
-                # Update mix proto
-                if self.config.model_params.mix and domain_name == "target":
-                    for idx in range(self.num_class):
-                        if (len(feat_lbd[labels_lbd == idx]) == 0) or (len(feat_unl[labels_unl == idx]) == 0):
-                            continue
-                        # new_proto = torch.cat(
-                        #     (feat_lbd[labels_lbd == idx],
-                        #     feat_unl[labels_unl == idx]
-                        # )).mean(0)
-                        new_proto = (feat_lbd[labels_lbd == idx].mean(0) + feat_unl[labels_unl == idx].mean(0)).mean(0)
-                        idx = torch.ones(1, dtype=torch.int64) * idx
-                        idx = idx.cuda()
-                        memory_bank_proto_mix = self.get_attr("mix", "memory_bank_proto")
-                        old_proto = memory_bank_proto_mix.at_idxs(idx.cuda())
-                        new_proto = new_proto.view(1, -1)
-                        update_proto = update_data_memory(old_proto, new_proto)
-                        memory_bank_proto_mix.update(idx, update_proto)
-                        self.loss_fn.module.set_broadcast("mix", "memory_bank_proto", memory_bank_proto_mix.as_tensor())
-
                 # Semi Supervised
-                # if self.semi and domain_name == "source":
-                #     semi_mask = ~torchutils.isin(indices_unl, fewshot_index)
+                if self.semi and domain_name == "source":
+                    semi_mask = ~torchutils.isin(indices_unl, fewshot_index)
 
-                #     indices_semi = indices_unl[semi_mask]
-                #     out_semi = out_unl[semi_mask]
+                    indices_semi = indices_unl[semi_mask]
+                    out_semi = out_unl[semi_mask]
 
                 # Self-supervised Learning
                 if self.ssl:
@@ -494,38 +452,42 @@ class FixCLAgent(BaseAgent):
                 }
 
                 if is_pseudo[domain_name]:
-                    if domain_name == "target":
+                    if domain_name == "source":
+                        indices_pseudo = indices_semi
+                        out_pseudo = out_semi
+                        pseudo_domain = self.predict_ordered_labels_pseudo_source
+                    else:
                         indices_pseudo = indices_unl
                         out_pseudo = out_unl  # [bs, class_num]
                         pseudo_domain = self.predict_ordered_labels_pseudo_target
                     thres = thres_dict[domain_name]
 
                     # calculate loss
-                    if domain_name == "target":
-                        loss_pseudo, aux = torchutils.pseudo_label_loss(
-                            out_pseudo,
-                            thres=thres,
-                            mask=None,
-                            num_class=self.num_class,
-                            aux=True,
-                        )
-                        mask_pseudo = aux["mask"]
+                    loss_pseudo, aux = torchutils.pseudo_label_loss(
+                        out_pseudo,
+                        thres=thres,
+                        mask=None,
+                        num_class=self.num_class,
+                        aux=True,
+                    )
+                    mask_pseudo = aux["mask"]
 
-                        # fewshot memory bank
-                        # mb = self.get_attr("source", "memory_bank_wrapper")
-                        # indices_lbd_tounl = fewshot_index[indices_lbd]
-                        # mb_feat_lbd = mb.at_idxs(indices_lbd_tounl)
-                        # fewshot_data_memory = update_data_memory(mb_feat_lbd, feat_lbd)
+                    # fewshot memory bank
+                    mb = self.get_attr("source", "memory_bank_wrapper")
+                    indices_lbd_tounl = fewshot_index[indices_lbd]
+                    mb_feat_lbd = mb.at_idxs(indices_lbd_tounl)
+                    fewshot_data_memory = update_data_memory(mb_feat_lbd, feat_lbd)
 
-                        # stat
-                        pred_selected = out_pseudo.argmax(dim=1)[mask_pseudo]
-                        indices_selected = indices_pseudo[mask_pseudo]
-                        indices_unselected = indices_pseudo[~mask_pseudo]
+                    # stat
+                    pred_selected = out_pseudo.argmax(dim=1)[mask_pseudo]
+                    indices_selected = indices_pseudo[mask_pseudo]
+                    indices_unselected = indices_pseudo[~mask_pseudo]
 
-                        pseudo_domain[indices_selected] = pred_selected
-                        pseudo_domain[indices_unselected] = -1
+                    pseudo_domain[indices_selected] = pred_selected
+                    pseudo_domain[indices_unselected] = -1
 
                 # Compute Loss
+
                 for ind, ls in enumerate(loss_list):
                     if (
                         self.current_epoch < loss_warmup[ind]
@@ -540,26 +502,26 @@ class FixCLAgent(BaseAgent):
                     elif ls == "cls-info" and domain_name == "source":
                         loss_part = loss_info(feat_lbd, mb_feat_lbd, labels_lbd)
                     # semi-supervision learning on unlabled source
-                    # elif ls == "semi-entmin" and domain_name == "source":
-                    #     loss_part = torchutils.entropy(out_semi)
-                    # elif ls == "semi-condentmax" and domain_name == "source":
-                    #     bs = out_semi.size(0)
-                    #     prob_semi = F.softmax(out_semi, dim=1)
-                    #     prob_mean_semi = prob_semi.sum(dim=0) / bs
+                    elif ls == "semi-entmin" and domain_name == "source":
+                        loss_part = torchutils.entropy(out_semi)
+                    elif ls == "semi-condentmax" and domain_name == "source":
+                        bs = out_semi.size(0)
+                        prob_semi = F.softmax(out_semi, dim=1)
+                        prob_mean_semi = prob_semi.sum(dim=0) / bs
 
                         # update momentum
-                        # self.momentum_softmax_source.update(
-                        #     prob_mean_semi.cpu().detach(), bs
-                        # )
+                        self.momentum_softmax_source.update(
+                            prob_mean_semi.cpu().detach(), bs
+                        )
                         # get momentum probability
                         momentum_prob_source = (
                             self.momentum_softmax_source.softmax_vector.cuda()
                         )
                         # compute loss
-                        # entropy_cond = -torch.sum(
-                        #     prob_mean_semi * torch.log(momentum_prob_source + 1e-5)
-                        # )
-                        # loss_part = -entropy_cond
+                        entropy_cond = -torch.sum(
+                            prob_mean_semi * torch.log(momentum_prob_source + 1e-5)
+                        )
+                        loss_part = -entropy_cond
 
                     # learning on unlabeled target domain
                     elif ls == "tgt-entmin" and domain_name == "target":
@@ -583,7 +545,7 @@ class FixCLAgent(BaseAgent):
                         )
                         loss_part = -entropy_cond
                     # self-supervised learning
-                    elif ls.split("-")[0] in ["ID", "CD", "proto", "I2C", "C2C", "I2M"]:
+                    elif ls.split("-")[0] in ["ID", "CD", "proto", "I2C", "C2C"]:
                         loss_part = loss_ssl[ind]
 
                     loss_part = loss_weight[ind] * loss_part
@@ -600,10 +562,10 @@ class FixCLAgent(BaseAgent):
                 # update memory_bank
                 if self.ssl:
                     self._update_memory_bank(domain_name, indices_unl, new_data_memory)
-                    # if domain_name == "source":
-                    #     self._update_memory_bank(
-                    #         domain_name, indices_lbd_tounl, fewshot_data_memory
-                    #     )
+                    if domain_name == "source":
+                        self._update_memory_bank(
+                            domain_name, indices_lbd_tounl, fewshot_data_memory
+                        )
 
                 # update lr info
                 tqdm_post["lr"] = torchutils.get_lr(self.optim, g_id=-1)
@@ -681,9 +643,9 @@ class FixCLAgent(BaseAgent):
                 )
 
         else:
-            mask = self.source_labels != -1
+            mask = self.predict_ordered_labels_pseudo_source != -1
             # mask = torch.ones()
-            fewshot_label["src"] = self.source_labels[mask]
+            fewshot_label["src"] = self.predict_ordered_labels_pseudo_source[mask]
             fewshot_index["src"] = mask.nonzero().squeeze(1)
         if is_tgt:
             mask = self.predict_ordered_labels_pseudo_target != -1
@@ -929,30 +891,14 @@ class FixCLAgent(BaseAgent):
     @torch.no_grad()
     def _init_memory_bank(self):
         out_dim = self.config.model_params.out_dim
-        memory_bank_mix = MemoryBank(self.num_class, out_dim)
-        self.set_attr("mix", "memory_bank_proto", memory_bank_mix)
-        self.loss_fn.module.set_broadcast(
-            "mix", "memory_bank_proto", memory_bank_mix.as_tensor()
-        )
         for domain_name in ("source", "target"):
             data_len = self.get_attr(domain_name, "train_len")
             memory_bank = MemoryBank(data_len, out_dim)
-            memory_bank_proto = MemoryBank(self.num_class, out_dim)
             if self.config.model_params.load_memory_bank:
                 self.compute_train_features()
                 idx = self.get_attr(domain_name, "train_indices")
                 feat = self.get_attr(domain_name, "train_features")
                 memory_bank.update(idx, feat)
-                # init source proto memorybank
-                if domain_name == "source" and self.config.model_params.mix:
-                    labels = self.get_attr(domain_name, "train_ordered_labels")[idx]
-                    for idx in range(self.num_class):
-                        idx = torch.ones(1, dtype=torch.int64) * idx
-                        idx = idx.cuda()
-                        old_proto = memory_bank_proto.at_idxs(idx)
-                        new_proto = feat[labels == idx].mean(0).view(1,-1)
-                        update_proto = update_data_memory(old_proto, new_proto)
-                        memory_bank.update(idx, update_proto)
                 # self.logger.info(
                 #     f"Initialize memorybank-{domain_name} with pretrained output features"
                 # )
@@ -960,13 +906,9 @@ class FixCLAgent(BaseAgent):
                 if self.config.data_params.name in ["visda17", "domainnet"]:
                     delattr(self, f"train_indices_{domain_name}")
                     delattr(self, f"train_features_{domain_name}")
-            if domain_name == "source" and self.config.model_params.mix:
-                self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
-                self.loss_fn.module.set_broadcast(
-                    domain_name, "memory_bank_proto", memory_bank_proto.as_tensor()
-                )
+
             self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
-            # self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
+
             self.loss_fn.module.set_attr(domain_name, "data_len", data_len)
             self.loss_fn.module.set_broadcast(
                 domain_name, "memory_bank", memory_bank.as_tensor()

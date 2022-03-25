@@ -17,8 +17,8 @@
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
     "patience": 10,
-    "batch_size_lbd": 16,
     "batch_size": 16,
+    "accumulation_step": 4,
     "decay": true,
     "weight_decay": 5e-4,
     "cls_update": true
@@ -31,15 +31,16 @@
     "version": "pretrain-resnet50"
   },
   "loss_params": {
-    "T": 0.1,
+    "T": 0.3,
     "temp": 0.1,
     "loss": [
       "cls-so",
+      "transfer",
       "proto-each",
       "I2M-cross",
       "tgt-entmin"
     ],
-    "weight": [1, 1, 1, 0.05],
+    "weight": [1, 1, 1, 1, 0.05],
     "clus": {
       "kmeans_freq": 1,
       "type": ["each"],
