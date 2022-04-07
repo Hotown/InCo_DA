@@ -1,6 +1,6 @@
 # InCo: Intermediate Prototype Contrast for Unsupervised Domain Adaptation
 
-This repository contrains the author's implementation in Pytorch for InCo(Intermediate Prototype Contrast for Unsupervised Domain Adaptation).
+This repository contains the author's implementation in Pytorch for InCo(Intermediate Prototype Contrast for Unsupervised Domain Adaptation).
 
 <!-- ## Overview
 
