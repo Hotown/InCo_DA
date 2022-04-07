@@ -592,7 +592,7 @@ class InCoAgent(BaseAgent):
             source_feature = self.collect_feature(data_loader=source_loader, device=self.device)
             target_feature = self.collect_feature(data_loader=target_loader, device=self.device)
             # plot t-SNE
-            dir = os.path.join("/root/hotown/con_learning/images", self.config.exp_id)
+            dir = os.path.join("./images", self.config.exp_id)
             if not os.path.exists(dir):
                 os.makedirs(dir)
             tSNE_filename = os.path.join(dir, 'TSNE.png')

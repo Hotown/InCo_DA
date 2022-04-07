@@ -12,8 +12,8 @@
     "fewshot": "",
     "aug": "aug_0"
   },
-  "num_epochs": 1,
-  "steps_epoch": 10,
+  "num_epochs": 20,
+  "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,
