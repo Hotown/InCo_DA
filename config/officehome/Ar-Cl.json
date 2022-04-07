@@ -4,6 +4,7 @@
     "exp_name": "officehome",
     "exp_id": "Art->Clipart",
     "agent": "FixDANNAgent",
+    "phase": "analysis",
     "data_params": {
         "name": "office_home",
         "source": "Art",
@@ -18,7 +19,7 @@
         "conv_lr_ratio": 0.1,
         "patience": 8,
         "batch_size": 32,
-        "accumulation_step": 4,
+        "accumulation_step": 2,
         "decay": true,
         "weight_decay": 5e-4,
         "cls_update": true
@@ -34,23 +35,18 @@
         "T": 0.1,
         "temp": 0.1,
         "loss": [
-            "cls-so",
-            "proto-each",
-            "I2M-cross",
-            "transfer",
-            "tgt-entmin"
+          "cls-so",
+          "transfer",
+          "proto-each",
+          "I2M-cross",
+          "tgt-entmin"
         ],
         "weight": [1, 1, 1, 1, 0.05],
         "clus": {
-            "kmeans_freq": 1,
-            "type": [
-                "each"
-            ],
-            "n_k": 15,
-            "k": [
-                65,
-                130
-            ]
+          "kmeans_freq": 1,
+          "type": ["each"],
+          "n_k": 15,
+          "k": [65, 130]
         }
-    }
+      }
 }

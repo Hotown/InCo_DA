@@ -4,6 +4,7 @@
     "exp_name": "officehome",
     "exp_id": "Clipart->Real",
     "agent": "FixDANNAgent",
+    "phase": "analysis",
     "data_params": {
       "name": "office_home",
       "source": "Clipart",
@@ -11,13 +12,13 @@
       "aug": "aug_0"
     },
     "num_epochs": 100,
-    "warm_up": 10,
     "steps_epoch": null,
     "optim_params": {
       "learning_rate": 0.01,
       "conv_lr_ratio": 0.1,
       "patience": 8,
-      "batch_size": 64,
+      "batch_size": 32,
+      "accumulation_step": 2,
       "decay": true,
       "weight_decay": 5e-4,
       "cls_update": true
@@ -32,17 +33,16 @@
       "load_weight_epoch": 5
     },
     "loss_params": {
-      "thres_src": 0.99,
-      "thres_tgt": 0.99,
+      "T": 0.1,
       "temp": 0.1,
       "loss": [
         "cls-so",
+        "transfer",
         "proto-each",
         "I2M-cross",
-        "tgt-condentmax",
         "tgt-entmin"
       ],
-      "weight": [1, 1, 1, 0, 0.05],
+      "weight": [1, 1, 1, 1, 0.05],
       "clus": {
         "kmeans_freq": 1,
         "type": ["each"],

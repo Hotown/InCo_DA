@@ -119,6 +119,7 @@ class BaseAgent(object):
         """
         try:
             self.train()
+            self.analysis()
             self.cleanup()
         except KeyboardInterrupt as e:
             self.logger.info("Interrupt detected. Saving data...")
@@ -160,11 +161,17 @@ class BaseAgent(object):
             for sch in self.lr_scheduler_list:
                 sch.step()
             # TODO: save checkpoint
-            # self.save_checkpoint()
+            self.save_checkpoint()
 
     def warm_up_one_epoch(self):
         """
         One epoch of warm up
+        """
+        raise NotImplementedError
+
+    def analysis(self):
+        """
+        t-sne
         """
         raise NotImplementedError
 

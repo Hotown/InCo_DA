@@ -4,6 +4,7 @@
   "exp_name": "office",
   "exp_id": "amazon->dslr",
   "agent": "FixDANNAgent",
+  "phase": "analysis",
   "data_params": {
     "name": "office",
     "source": "amazon",
@@ -11,8 +12,8 @@
     "fewshot": "",
     "aug": "aug_0"
   },
-  "num_epochs": 20,
-  "steps_epoch": null,
+  "num_epochs": 1,
+  "steps_epoch": 10,
   "optim_params": {
     "learning_rate": 0.01,
     "conv_lr_ratio": 0.1,

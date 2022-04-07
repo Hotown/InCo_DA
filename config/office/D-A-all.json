@@ -3,7 +3,8 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "dslr->amazon",
-  "agent": "FixDANNAgent",
+  "agent": "SoAgent",
+  "phase": "analysis",
   "data_params": {
     "name": "office",
     "source": "dslr",

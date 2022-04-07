@@ -17,8 +17,9 @@ from models import (CrossEntropyLabelSmooth, Entropy, MemoryBank, torch_kmeans,
 from pcs.models.ssda import DomainAdversarialLoss
 from sklearn import metrics
 from tqdm import tqdm
+from pcs.utils import tsne
 from utils import (AverageMeter, ProgressMeter, accuracy, datautils, get_model,
-                   torchutils)
+                   torchutils, tsne)
 
 from . import BaseAgent
 
@@ -49,13 +50,13 @@ class FixDANNAgent(BaseAgent):
         super(FixDANNAgent, self).__init__(config)
 
         # for MIM
-        self.momentum_softmax_target = torchutils.MomentumSoftmax(
-            self.num_class, m=len(self.get_attr("target", "train_loader"))
-        )
+        # self.momentum_softmax_target = torchutils.MomentumSoftmax(
+        #     self.num_class, m=len(self.get_attr("target", "train_loader"))
+        # )
 
         self.domain_m_dict = {
-            "source": 0.3,
-            "target": 0.7
+            "source": 0.8,
+            "target": 0.2
         }
 
         # init loss
@@ -70,7 +71,7 @@ class FixDANNAgent(BaseAgent):
         
         # init target pseudo label
         # self.get_pseudo_target()
-        
+
     def _define_task(self, config):
         # specify task
         self.cls = self.semi = self.tgt = self.ssl = False
@@ -642,6 +643,50 @@ class FixDANNAgent(BaseAgent):
 
         return acc
 
+    def analysis(self):
+        if self.config.phase == "analysis":
+            source_loader = self.get_attr("source", "train_loader")
+            target_loader = self.get_attr("target", "train_loader")
+            self.load_checkpoint(filename="model_best.pth.tar")
+            # extract features from both domains
+            source_feature = self.collect_feature(data_loader=source_loader, device=self.device)
+            target_feature = self.collect_feature(data_loader=target_loader, device=self.device)
+            # plot t-SNE
+            dir = os.path.join("/root/hotown/con_learning/images", self.config.exp_id)
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            tSNE_filename = os.path.join(dir, 'TSNE.png')
+            tsne.visualize(source_feature, target_feature, tSNE_filename)
+            print("Saving t-SNE to", tSNE_filename)
+
+    def collect_feature(self, data_loader: torch.utils.data.DataLoader,
+                    device: torch.device, max_num_features=None) -> torch.Tensor:
+        """
+        Fetch data from `data_loader`, and then use `feature_extractor` to collect features
+
+        Args:
+            data_loader (torch.utils.data.DataLoader): Data loader.
+            feature_extractor (torch.nn.Module): A feature extractor.
+            device (torch.device)
+            max_num_features (int): The max number of features to return
+
+        Returns:
+            Features in shape (min(len(data_loader), max_num_features * mini-batch size), :math:`|\mathcal{F}|`).
+        """
+        self.model.eval()
+        all_features = []
+        with torch.no_grad():
+            for i, (_, images, target) in enumerate(data_loader):
+                if max_num_features is not None and i >= max_num_features:
+                    break
+                images = images.to(device)
+                feature, _, _ = self.model(images)
+                feature = feature.cpu()
+                all_features.append(feature)
+        return torch.cat(all_features, dim=0)
+
+
+
     # Load & Save checkpoint
 
     def load_checkpoint(
@@ -652,7 +697,7 @@ class FixDANNAgent(BaseAgent):
         load_model=True,
         load_optim=False,
         load_epoch=False,
-        load_cls=True,
+        load_cls=False,
     ):
         checkpoint_dir = checkpoint_dir or self.config.checkpoint_dir
         filename = os.path.join(checkpoint_dir, filename)
@@ -691,19 +736,23 @@ class FixDANNAgent(BaseAgent):
                     for param_group in self.optim.param_groups:
                         param_group["lr"] = self.config.optim_params.learning_rate
 
-            self._init_memory_bank()
-            if (
-                load_memory_bank or self.config.model_params.load_memory_bank == False
-            ):  # load memory_bank
-                self._load_memory_bank(
-                    {
-                        "source": checkpoint["memory_bank_source"],
-                        "target": checkpoint["memory_bank_target"],
-                    }
-                )
+            # self._init_memory_bank()
+            # if (
+            #     load_memory_bank or self.config.model_params.load_memory_bank == False
+            # ):  # load memory_bank
+            #     self._load_memory_bank(
+            #         {
+            #             "source": checkpoint["memory_bank_source"],
+            #             "target": checkpoint["memory_bank_target"],
+            #         }
+            #     )
+
+            # self.logger.info(
+            #     f"Checkpoint loaded successfully from '{filename}' at (epoch {checkpoint['epoch']}) at (iteration s:{checkpoint['iteration_source']} t:{checkpoint['iteration_target']}) with loss = {checkpoint['loss']}\nval acc = {checkpoint['val_acc']}\n"
+            # )
 
             self.logger.info(
-                f"Checkpoint loaded successfully from '{filename}' at (epoch {checkpoint['epoch']}) at (iteration s:{checkpoint['iteration_source']} t:{checkpoint['iteration_target']}) with loss = {checkpoint['loss']}\nval acc = {checkpoint['val_acc']}\n"
+                f"Checkpoint loaded successfully from '{filename}'\n"
             )
 
         except OSError as e:
@@ -714,21 +763,21 @@ class FixDANNAgent(BaseAgent):
         out_dict = {
             "config": self.config,
             "model_state_dict": self.model.state_dict(),
-            "optim_state_dict": self.optim.state_dict(),
-            "memory_bank_source": self.get_attr("source", "memory_bank_wrapper"),
-            "memory_bank_target": self.get_attr("target", "memory_bank_wrapper"),
-            "epoch": self.current_epoch,
-            "iteration": self.current_iteration,
-            "iteration_source": self.get_attr("source", "current_iteration"),
-            "iteration_target": self.get_attr("target", "current_iteration"),
-            "val_iteration": self.current_val_iteration,
-            "val_acc": np.array(self.val_acc),
-            "val_metric": self.current_val_metric,
-            "loss": self.current_loss,
-            "train_loss": np.array(self.train_loss),
+            # "optim_state_dict": self.optim.state_dict(),
+            # "memory_bank_source": self.get_attr("source", "memory_bank_wrapper"),
+            # "memory_bank_target": self.get_attr("target", "memory_bank_wrapper"),
+            # "epoch": self.current_epoch,
+            # "iteration": self.current_iteration,
+            # "iteration_source": self.get_attr("source", "current_iteration"),
+            # "iteration_target": self.get_attr("target", "current_iteration"),
+            # "val_iteration": self.current_val_iteration,
+            # "val_acc": np.array(self.val_acc),
+            # "val_metric": self.current_val_metric,
+            # "loss": self.current_loss,
+            # "train_loss": np.array(self.train_loss),
         }
-        if self.cls:
-            out_dict["cls_state_dict"] = self.cls_head.state_dict()
+        # if self.cls:
+        #     out_dict["cls_state_dict"] = self.cls_head.state_dict()
         # best according to source-to-target
         is_best = (
             self.current_val_metric == self.best_val_metric

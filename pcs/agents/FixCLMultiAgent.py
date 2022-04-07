@@ -17,8 +17,9 @@ from models import (CrossEntropyLabelSmooth, Entropy, MemoryBank, torch_kmeans,
 from pcs.models.ssda import DomainAdversarialLoss
 from sklearn import metrics
 from tqdm import tqdm
+from pcs.utils import tsne
 from utils import (AverageMeter, ProgressMeter, accuracy, datautils, get_model,
-                   torchutils)
+                   torchutils, tsne)
 
 from . import BaseAgent
 
@@ -35,7 +36,7 @@ ls_abbr = {
 }
 
 
-class FixCLMultiAgent(BaseAgent):
+class FixDANNAgent(BaseAgent):
     def __init__(self, config):
         self.config = config
         self._define_task(config)
@@ -46,7 +47,7 @@ class FixCLMultiAgent(BaseAgent):
             "target": self.config.data_params.target,
         }
 
-        super(FixCLMultiAgent, self).__init__(config)
+        super(FixDANNAgent, self).__init__(config)
 
         # for MIM
         # self.momentum_softmax_target = torchutils.MomentumSoftmax(
@@ -70,7 +71,7 @@ class FixCLMultiAgent(BaseAgent):
         
         # init target pseudo label
         # self.get_pseudo_target()
-        
+
     def _define_task(self, config):
         # specify task
         self.cls = self.semi = self.tgt = self.ssl = False
@@ -153,6 +154,7 @@ class FixCLMultiAgent(BaseAgent):
             )
             train_labels = torch.from_numpy(train_dataset.labels).detach().cuda()
 
+            self.set_attr(domain_name, "train_dataset", train_dataset)
             self.set_attr(domain_name, "train_ordered_labels", train_labels)
             self.set_attr(domain_name, "train_loader", train_loader)
             self.set_attr(domain_name, "train_init_loader", train_init_loader)
@@ -207,7 +209,7 @@ class FixCLMultiAgent(BaseAgent):
                 backbone = get_model(version, pretrain=pretrained)
             else:
                 backbone = get_model(version, pretrain=False)
-            model = models.builder.FixCL(backbone, self.num_class, bottleneck_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
+            model = models.builder.FixCL(backbone, self.num_class, project_dim=out_dim, mlp=self.config.model_params.mlp, finetune=True)
             print(model)
         else:
             raise NotImplementedError
@@ -215,14 +217,13 @@ class FixCLMultiAgent(BaseAgent):
         # self.model_param = model.get_parameters()
         # TODO: distributed
         self.domain_discri = models.builder.DomainDiscriminator(in_feature=model.features_dim, hidden_size=1024).cuda()
-        # self.domain_discri_param = self.domain_discri.get_parameters()
         # self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
         self.criterion = nn.CrossEntropyLoss()
         self.domain_adv = DomainAdversarialLoss(self.domain_discri).cuda()
         model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
-        # self.domain_adv = nn.DataParallel(self.domain_adv, device_ids=self.gpu_devices).cuda()
+       
     def _create_optimizer(self):
         lr = self.config.optim_params.learning_rate
         momentum = self.config.optim_params.momentum
@@ -323,10 +324,10 @@ class FixCLMultiAgent(BaseAgent):
             top1.update(cls_acc, images_source.size(0))
 
             # target entropy for warm up
-            target_loss = Entropy()(out_target)
+            # target_loss = Entropy()(out_target)
 
-            loss = source_loss + 0.05 * target_loss
-
+            # loss = source_loss + 0.05 * target_loss
+            loss = source_loss
             losses.update(loss.item(), images_source.size(0))
 
             # compute gradient and SGD step
@@ -342,25 +343,7 @@ class FixCLMultiAgent(BaseAgent):
             if batch_i % print_freq == 0:
                 print(torchutils.get_lr(self.optim, g_id=-1))
                 progress.display(batch_i)
-
-    def get_pseudo_target(self):
-        target_loader = self.get_attr("target", "train_init_loader")
-        model = torch.load("/root/hotown/con_learning/best.pth").cuda()
-        model.eval()
-        pred_label = []
-        with torch.no_grad():
-            for i, (_, image, label) in enumerate(target_loader):
-                image = image.cuda()
-                # output = model(image)
-                output = model.backbone(image)
-                output = model.pool_layer(output)
-                output = model.bottleneck(output)
-                output = model.head(output)
-                pred = torch.argmax(output, dim=1)
-                pred_label += pred
-        pred_label = torch.Tensor(pred_label).long()
-        self.set_attr("target", "pseudo_label", pred_label)
-        
+ 
     def train_one_epoch(self):
         loss_list = self.config.loss_params.loss
         loss_weight = self.config.loss_params.weight
@@ -381,10 +364,10 @@ class FixCLMultiAgent(BaseAgent):
 
         batch_time = AverageMeter('Time', ':6.3f')
         # load_time = AverageMeter('Load', ':6.3f')
-        total_loss = AverageMeter('Loss', ':.4e')
+        total_loss = AverageMeter('Loss', ':2.2f')
         losses = []
         for loss_item in loss_list:
-            losses.append(AverageMeter(loss_item, ':.4e'))
+            losses.append(AverageMeter(loss_item, ':2.2f'))
         acc = AverageMeter('Acc', ':6.2f')
         progress_list = [batch_time, total_loss]
         progress_list = progress_list+losses
@@ -417,11 +400,11 @@ class FixCLMultiAgent(BaseAgent):
                 init_centroids=init_centroids,
                 seed=self.current_epoch + self.current_iteration)
             
-            # tar_proto = memory_bank_proto_target.as_tensor()
-            # new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
-            # memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-        # target_labels = self.get_attr("target", "pseudo_label")
-        
+            # compare with true target label
+            cluster_correct = self.get_attr("target", "train_ordered_labels").eq(target_labels).sum().item()
+            cluster_acc = cluster_correct / len(target_labels[0])
+            self.logger.info(f"cluster acc={cluster_correct}/{len(target_labels[0])}({100. * cluster_acc:.3f}%)")
+            
         for batch_i in range(num_batches):
             # iteration over all source images
             if not batch_i % len(source_loader):
@@ -431,12 +414,6 @@ class FixCLMultiAgent(BaseAgent):
             if not batch_i % len(target_loader):
                 target_iter = iter(target_loader)
 
-                if "tgt-condentmax" in self.config.loss_params.loss:
-                    momentum_prob_target = (
-                        self.momentum_softmax_target.softmax_vector.cuda()
-                    )
-                    self.momentum_softmax_target.reset()
-
             indices_source, images_source, labels_source = next(source_iter)
             indices_source = indices_source.cuda()
             images_source = images_source.cuda()
@@ -445,20 +422,19 @@ class FixCLMultiAgent(BaseAgent):
             indices_target, images_target, _ = next(target_iter)
             indices_target = indices_target.cuda()
             images_target = images_target.cuda()
-            labels_target = target_labels.squeeze()[indices_target]
-            # labels_target = target_labels[indices_target].cuda()
             
             f_source, feat_source, predict_source = self.model(images_source)
             f_target, feat_target, predict_target = self.model(images_target)
+            labels_target = target_labels.squeeze()[indices_target]
+            
+            
             feat_source = F.normalize(feat_source, dim=1)
             feat_target = F.normalize(feat_target, dim=1)
             
             # proto-each loss: In domain contrastive loss
             proto_source = self.get_attr("source", "memory_bank_proto") # K x C
             logits_source = torch.einsum('nc,kc->nk',[feat_source, proto_source.as_tensor()]) # N = bt_size, K = class_num
-
             logits_source /= self.t
-
             proto_target = self.get_attr("target", "memory_bank_proto")
             logits_target = torch.einsum('nc,kc->nk', [feat_target, proto_target.as_tensor()])
             logits_target /= self.t
@@ -466,15 +442,10 @@ class FixCLMultiAgent(BaseAgent):
             # I2M Loss: Cross domain contrastive loss
             mix_source = self.get_attr("source", "memory_bank_mix")
             mix_target = self.get_attr("target", "memory_bank_mix")
-            
-            
             logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_target.as_tensor()])
             logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_source.as_tensor()])
             logits_source_mix /= self.t
             logits_target_mix /= self.t
-            
-            # discriminator
-            # transfer_loss = self.domain_adv(f_source, f_target)
             
             # Compute Loss
             loss = torch.tensor(0).cuda()
@@ -482,50 +453,23 @@ class FixCLMultiAgent(BaseAgent):
                 if self.current_epoch < loss_warmup[ind] or self.current_epoch >= loss_giveup[ind]:
                     continue
                 loss_part = torch.tensor(0).cuda()
-                if ls == "cls-so":
+                if ls == "cls-so" and loss_weight[ind] != 0:
                     loss_part = self.criterion(predict_source, labels_source)
-                elif ls == "transfer":
+                elif ls == "transfer" and loss_weight[ind] != 0:
                     loss_part = self.domain_adv(f_source, f_target)
-                elif ls == "tgt-entmin":
+                elif ls == "tgt-entmin" and loss_weight[ind] != 0:
                     loss_part = Entropy()(predict_target)
-                elif ls == "tgt-condentmax":
-                    bs = predict_target.size(0)
-                    prob_target = F.softmax(predict_target, dim=1)
-                    prob_mean_target = prob_target.sum(dim=0) / bs
-                    
-                    # update momentum
-                    self.momentum_softmax_target.update(
-                        prob_mean_target.cpu().detach(), bs
-                    )
-                    
-                    # get momentum probablity
-                    momentum_prob_target = (
-                        self.momentum_softmax_target.softmax_vector.cuda()
-                    )
-                    
-                    # compute loss
-                    entropy_cond = - torch.sum(
-                        prob_mean_target * torch.log(
-                            momentum_prob_target + 1e-5
-                        )
-                    )
-                    loss_part = - entropy_cond
-                elif ls.split("-")[0] == "proto":
+                elif ls.split("-")[0] == "proto" and loss_weight[ind] != 0:
                     proto_source_loss = nn.CrossEntropyLoss()(logits_source, labels_source)
                     proto_target_loss = nn.CrossEntropyLoss()(logits_target, labels_target)
-                    # proto_source_loss = CrossEntropyLabelSmooth(self.num_class)(logits_source, labels_source)
-                    # proto_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target, labels_target)
                     loss_part = (proto_source_loss + proto_target_loss) / 2
-                elif ls.split("-")[0] == "I2M":
-                    mix_source_loss = Entropy()(logits_source_mix)
+                elif ls.split("-")[0] == "I2M" and loss_weight[ind] != 0:
                     mix_target_loss = Entropy()(logits_target_mix)
-                    # mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
-                    # mix_target_loss = CrossEntropyLabelSmooth(self.num_class)(logits_target_mix, labels_target)
+                    mix_source_loss = nn.CrossEntropyLoss()(logits_source_mix, labels_source)
                     loss_part = (mix_source_loss + mix_target_loss) / 2
                 loss_part = loss_weight[ind] * loss_part
                 losses[ind].update(loss_part.item(), images_source.size(0))
                 loss = loss + loss_part
-            # loss += transfer_loss
             total_loss.update(loss.item(), images_source.size(0))
             
             # grad accumulation
@@ -542,6 +486,7 @@ class FixCLMultiAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
+            # self._update_memory_bank("target", indices_target, data_memory)
             new_target_data = update_data_memory(data_memory, feat_target, m=self.m)
             self._update_memory_bank("target", indices_target, new_target_data)
             
@@ -591,7 +536,6 @@ class FixCLMultiAgent(BaseAgent):
             if batch_i % print_freq == 0:
                 progress.display(batch_i)
         print(torchutils.get_lr(self.optim, g_id=-1))
-        
     # Validate
     @torch.no_grad()
     def validate(self):
@@ -663,6 +607,50 @@ class FixCLMultiAgent(BaseAgent):
 
         return acc
 
+    def analysis(self):
+        if self.config.phase == "analysis":
+            source_loader = self.get_attr("source", "train_loader")
+            target_loader = self.get_attr("target", "train_loader")
+            self.load_checkpoint(filename="model_best.pth.tar")
+            # extract features from both domains
+            source_feature = self.collect_feature(data_loader=source_loader, device=self.device)
+            target_feature = self.collect_feature(data_loader=target_loader, device=self.device)
+            # plot t-SNE
+            dir = os.path.join("/root/hotown/con_learning/images", self.config.exp_id)
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            tSNE_filename = os.path.join(dir, 'TSNE.png')
+            tsne.visualize(source_feature, target_feature, tSNE_filename)
+            print("Saving t-SNE to", tSNE_filename)
+
+    def collect_feature(self, data_loader: torch.utils.data.DataLoader,
+                    device: torch.device, max_num_features=None) -> torch.Tensor:
+        """
+        Fetch data from `data_loader`, and then use `feature_extractor` to collect features
+
+        Args:
+            data_loader (torch.utils.data.DataLoader): Data loader.
+            feature_extractor (torch.nn.Module): A feature extractor.
+            device (torch.device)
+            max_num_features (int): The max number of features to return
+
+        Returns:
+            Features in shape (min(len(data_loader), max_num_features * mini-batch size), :math:`|\mathcal{F}|`).
+        """
+        self.model.eval()
+        all_features = []
+        with torch.no_grad():
+            for i, (_, images, target) in enumerate(data_loader):
+                if max_num_features is not None and i >= max_num_features:
+                    break
+                images = images.to(device)
+                feature, _, _ = self.model(images)
+                feature = feature.cpu()
+                all_features.append(feature)
+        return torch.cat(all_features, dim=0)
+
+
+
     # Load & Save checkpoint
 
     def load_checkpoint(
@@ -673,7 +661,7 @@ class FixCLMultiAgent(BaseAgent):
         load_model=True,
         load_optim=False,
         load_epoch=False,
-        load_cls=True,
+        load_cls=False,
     ):
         checkpoint_dir = checkpoint_dir or self.config.checkpoint_dir
         filename = os.path.join(checkpoint_dir, filename)
@@ -712,19 +700,23 @@ class FixCLMultiAgent(BaseAgent):
                     for param_group in self.optim.param_groups:
                         param_group["lr"] = self.config.optim_params.learning_rate
 
-            self._init_memory_bank()
-            if (
-                load_memory_bank or self.config.model_params.load_memory_bank == False
-            ):  # load memory_bank
-                self._load_memory_bank(
-                    {
-                        "source": checkpoint["memory_bank_source"],
-                        "target": checkpoint["memory_bank_target"],
-                    }
-                )
+            # self._init_memory_bank()
+            # if (
+            #     load_memory_bank or self.config.model_params.load_memory_bank == False
+            # ):  # load memory_bank
+            #     self._load_memory_bank(
+            #         {
+            #             "source": checkpoint["memory_bank_source"],
+            #             "target": checkpoint["memory_bank_target"],
+            #         }
+            #     )
+
+            # self.logger.info(
+            #     f"Checkpoint loaded successfully from '{filename}' at (epoch {checkpoint['epoch']}) at (iteration s:{checkpoint['iteration_source']} t:{checkpoint['iteration_target']}) with loss = {checkpoint['loss']}\nval acc = {checkpoint['val_acc']}\n"
+            # )
 
             self.logger.info(
-                f"Checkpoint loaded successfully from '{filename}' at (epoch {checkpoint['epoch']}) at (iteration s:{checkpoint['iteration_source']} t:{checkpoint['iteration_target']}) with loss = {checkpoint['loss']}\nval acc = {checkpoint['val_acc']}\n"
+                f"Checkpoint loaded successfully from '{filename}'\n"
             )
 
         except OSError as e:
@@ -735,21 +727,21 @@ class FixCLMultiAgent(BaseAgent):
         out_dict = {
             "config": self.config,
             "model_state_dict": self.model.state_dict(),
-            "optim_state_dict": self.optim.state_dict(),
-            "memory_bank_source": self.get_attr("source", "memory_bank_wrapper"),
-            "memory_bank_target": self.get_attr("target", "memory_bank_wrapper"),
-            "epoch": self.current_epoch,
-            "iteration": self.current_iteration,
-            "iteration_source": self.get_attr("source", "current_iteration"),
-            "iteration_target": self.get_attr("target", "current_iteration"),
-            "val_iteration": self.current_val_iteration,
-            "val_acc": np.array(self.val_acc),
-            "val_metric": self.current_val_metric,
-            "loss": self.current_loss,
-            "train_loss": np.array(self.train_loss),
+            # "optim_state_dict": self.optim.state_dict(),
+            # "memory_bank_source": self.get_attr("source", "memory_bank_wrapper"),
+            # "memory_bank_target": self.get_attr("target", "memory_bank_wrapper"),
+            # "epoch": self.current_epoch,
+            # "iteration": self.current_iteration,
+            # "iteration_source": self.get_attr("source", "current_iteration"),
+            # "iteration_target": self.get_attr("target", "current_iteration"),
+            # "val_iteration": self.current_val_iteration,
+            # "val_acc": np.array(self.val_acc),
+            # "val_metric": self.current_val_metric,
+            # "loss": self.current_loss,
+            # "train_loss": np.array(self.train_loss),
         }
-        if self.cls:
-            out_dict["cls_state_dict"] = self.cls_head.state_dict()
+        # if self.cls:
+        #     out_dict["cls_state_dict"] = self.cls_head.state_dict()
         # best according to source-to-target
         is_best = (
             self.current_val_metric == self.best_val_metric
@@ -882,7 +874,6 @@ class FixCLMultiAgent(BaseAgent):
         mix_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), update_mix_target)
         self.set_attr("source", "memory_bank_mix", mix_source)
         self.set_attr("target", "memory_bank_mix", mix_target)
-        
         self.logger.info(f"Initialize mix memorybank done.")
 
     @torch.no_grad()

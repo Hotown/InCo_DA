@@ -3,7 +3,8 @@
   "exp_base": "./exps",
   "exp_name": "office",
   "exp_id": "webcam->dslr",
-  "agent": "FixDANNAgent",
+  "agent": "SoAgent",
+  "phase": "analysis",
   "data_params": {
     "name": "office",
     "source": "webcam",
