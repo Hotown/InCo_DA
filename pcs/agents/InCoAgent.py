@@ -49,11 +49,6 @@ class InCoAgent(BaseAgent):
 
         super(InCoAgent, self).__init__(config)
 
-        # for MIM
-        # self.momentum_softmax_target = torchutils.MomentumSoftmax(
-        #     self.num_class, m=len(self.get_attr("target", "train_loader"))
-        # )
-
         self.domain_m_dict = {
             "source": 0.8,
             "target": 0.2
@@ -63,14 +58,9 @@ class InCoAgent(BaseAgent):
         self.t = config.loss_params.T
         self.m = config.model_params.m
 
-        # if self.config.pretrained_exp_dir is None:
-        #     self._init_memory_bank()
-
         # init statics
         self._init_labels() 
-        
-        # init target pseudo label
-        # self.get_pseudo_target()
+
 
     def _define_task(self, config):
         # specify task
@@ -214,17 +204,13 @@ class InCoAgent(BaseAgent):
         else:
             raise NotImplementedError
 
-        # self.model_param = model.get_parameters()
-        # TODO: distributed
         self.domain_discri = models.builder.DomainDiscriminator(in_feature=model.features_dim, hidden_size=1024).cuda()
-        # self.domain_discri_param = self.domain_discri.get_parameters()
-        # self.criterion = CrossEntropyLabelSmooth(self.num_class).cuda()
         self.criterion = nn.CrossEntropyLoss()
         self.domain_adv = DomainAdversarialLoss(self.domain_discri).cuda()
         model = nn.DataParallel(model, device_ids=self.gpu_devices)
         model = model.cuda()
         self.model = model
-        # self.domain_adv = nn.DataParallel(self.domain_adv, device_ids=self.gpu_devices).cuda()
+
     def _create_optimizer(self):
         lr = self.config.optim_params.learning_rate
         momentum = self.config.optim_params.momentum
@@ -267,8 +253,6 @@ class InCoAgent(BaseAgent):
             )
             self.lr_scheduler_list.append(optim_stepLR)
 
-        # if self.config.optim_params.decay:
-        #     self.optim_iterdecayLR = torchutils.lr_scheduler_invLR(self.optim)
         if self.config.optim_params.decay:
             optim_cosLR = torchutils.lr_scheduler_cosLR(
                 self.optim, self.config.num_epochs)
@@ -326,9 +310,7 @@ class InCoAgent(BaseAgent):
 
             # target entropy for warm up
             target_loss = Entropy()(out_target)
-
             loss = source_loss + 0.05 * target_loss
-
             losses.update(loss.item(), images_source.size(0))
 
             # compute gradient and SGD step
@@ -344,31 +326,12 @@ class InCoAgent(BaseAgent):
             if batch_i % print_freq == 0:
                 print(torchutils.get_lr(self.optim, g_id=-1))
                 progress.display(batch_i)
-
-    def get_pseudo_target(self):
-        target_loader = self.get_attr("target", "train_init_loader")
-        model = torch.load("/root/hotown/con_learning/best.pth").cuda()
-        model.eval()
-        pred_label = []
-        with torch.no_grad():
-            for i, (_, image, label) in enumerate(target_loader):
-                image = image.cuda()
-                # output = model(image)
-                output = model.backbone(image)
-                output = model.pool_layer(output)
-                output = model.bottleneck(output)
-                output = model.head(output)
-                pred = torch.argmax(output, dim=1)
-                pred_label += pred
-        pred_label = torch.Tensor(pred_label).long()
-        self.set_attr("target", "pseudo_label", pred_label)
         
     def train_one_epoch(self):
         loss_list = self.config.loss_params.loss
         loss_weight = self.config.loss_params.weight
         loss_warmup = self.config.loss_params.start
         loss_giveup = self.config.loss_params.end
-
         num_loss = len(loss_list)
 
         source_loader = self.get_attr("source", "train_loader")
@@ -382,7 +345,6 @@ class InCoAgent(BaseAgent):
             num_batches = self.config.steps_epoch
 
         batch_time = AverageMeter('Time', ':6.3f')
-        # load_time = AverageMeter('Load', ':6.3f')
         total_loss = AverageMeter('Loss', ':2.2f')
         losses = []
         for loss_item in loss_list:
@@ -423,11 +385,6 @@ class InCoAgent(BaseAgent):
             cluster_correct = self.get_attr("target", "train_ordered_labels").eq(target_labels).sum().item()
             cluster_acc = cluster_correct / len(target_labels[0])
             self.logger.info(f"cluster acc={cluster_correct}/{len(target_labels[0])}({100. * cluster_acc:.3f}%)")
-            
-            # tar_proto = memory_bank_proto_target.as_tensor()
-            # new_tar_proto = update_data_memory(tar_proto, target_cluster_centroids[0], m=self.m)
-            # memory_bank_proto_target.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-        # target_labels = self.get_attr("target", "pseudo_label")
         
         for batch_i in range(num_batches):
             # iteration over all source images
@@ -437,12 +394,6 @@ class InCoAgent(BaseAgent):
             # iteration over all target images
             if not batch_i % len(target_loader):
                 target_iter = iter(target_loader)
-
-                # if "tgt-condentmax" in self.config.loss_params.loss:
-                #     momentum_prob_target = (
-                #         self.momentum_softmax_target.softmax_vector.cuda()
-                #     )
-                #     self.momentum_softmax_target.reset()
 
             indices_source, images_source, labels_source = next(source_iter)
             indices_source = indices_source.cuda()
@@ -476,12 +427,8 @@ class InCoAgent(BaseAgent):
             
             logits_source_mix = torch.einsum('nc,kc->nk', [feat_source, mix_target.as_tensor()])
             logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_source.as_tensor()])
-            # logits_target_mix = torch.einsum('nc,kc->nk', [feat_target, mix_target.as_tensor()])
             logits_source_mix /= self.t
             logits_target_mix /= self.t
-            
-            # discriminator
-            # transfer_loss = self.domain_adv(f_source, f_target)
             
             # Compute Loss
             loss = torch.tensor(0).cuda()
@@ -522,7 +469,6 @@ class InCoAgent(BaseAgent):
             # target instance
             memory_bank_target = self.get_attr("target", "memory_bank_wrapper").as_tensor()
             data_memory = torch.index_select(memory_bank_target, 0, indices_target)
-            # self._update_memory_bank("target", indices_target, data_memory)
             new_target_data = update_data_memory(data_memory, feat_target, m=self.m)
             self._update_memory_bank("target", indices_target, new_target_data)
             
@@ -631,12 +577,6 @@ class InCoAgent(BaseAgent):
             epoch_loss.update(loss, pred.size(0))
 
         acc = correct / size
-        # self.summary_writer.add_scalars(
-        #     "test/acc", {f"{name}": acc}, self.current_epoch
-        # )
-        # self.summary_writer.add_scalars(
-        #     "test/loss", {f"{name}": epoch_loss.avg}, self.current_epoch
-        # )
         self.logger.info(
             f"[Epoch {self.current_epoch} {name}] loss={epoch_loss.avg:.5f}, acc={correct}/{size}({100. * acc:.3f}%)"
         )
@@ -661,18 +601,6 @@ class InCoAgent(BaseAgent):
 
     def collect_feature(self, data_loader: torch.utils.data.DataLoader,
                     device: torch.device, max_num_features=None) -> torch.Tensor:
-        """
-        Fetch data from `data_loader`, and then use `feature_extractor` to collect features
-
-        Args:
-            data_loader (torch.utils.data.DataLoader): Data loader.
-            feature_extractor (torch.nn.Module): A feature extractor.
-            device (torch.device)
-            max_num_features (int): The max number of features to return
-
-        Returns:
-            Features in shape (min(len(data_loader), max_num_features * mini-batch size), :math:`|\mathcal{F}|`).
-        """
         self.model.eval()
         all_features = []
         with torch.no_grad():
@@ -736,21 +664,6 @@ class InCoAgent(BaseAgent):
                     for param_group in self.optim.param_groups:
                         param_group["lr"] = self.config.optim_params.learning_rate
 
-            # self._init_memory_bank()
-            # if (
-            #     load_memory_bank or self.config.model_params.load_memory_bank == False
-            # ):  # load memory_bank
-            #     self._load_memory_bank(
-            #         {
-            #             "source": checkpoint["memory_bank_source"],
-            #             "target": checkpoint["memory_bank_target"],
-            #         }
-            #     )
-
-            # self.logger.info(
-            #     f"Checkpoint loaded successfully from '{filename}' at (epoch {checkpoint['epoch']}) at (iteration s:{checkpoint['iteration_source']} t:{checkpoint['iteration_target']}) with loss = {checkpoint['loss']}\nval acc = {checkpoint['val_acc']}\n"
-            # )
-
             self.logger.info(
                 f"Checkpoint loaded successfully from '{filename}'\n"
             )
@@ -763,22 +676,8 @@ class InCoAgent(BaseAgent):
         out_dict = {
             "config": self.config,
             "model_state_dict": self.model.state_dict(),
-            # "optim_state_dict": self.optim.state_dict(),
-            # "memory_bank_source": self.get_attr("source", "memory_bank_wrapper"),
-            # "memory_bank_target": self.get_attr("target", "memory_bank_wrapper"),
-            # "epoch": self.current_epoch,
-            # "iteration": self.current_iteration,
-            # "iteration_source": self.get_attr("source", "current_iteration"),
-            # "iteration_target": self.get_attr("target", "current_iteration"),
-            # "val_iteration": self.current_val_iteration,
-            # "val_acc": np.array(self.val_acc),
-            # "val_metric": self.current_val_metric,
-            # "loss": self.current_loss,
-            # "train_loss": np.array(self.train_loss),
         }
-        # if self.cls:
-        #     out_dict["cls_state_dict"] = self.cls_head.state_dict()
-        # best according to source-to-target
+        
         is_best = (
             self.current_val_metric == self.best_val_metric
         ) or not self.config.validate_freq
@@ -850,7 +749,6 @@ class InCoAgent(BaseAgent):
                         old_proto = memory_bank_proto.at_idxs(idx)
                         new_proto = feat[labels == idx].mean(0).view(1,-1)
                         update_proto = new_proto
-                        # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
                         memory_bank_proto.update(idx, update_proto)
 
                 # TODO: Target - init target prototype
@@ -871,22 +769,6 @@ class InCoAgent(BaseAgent):
                         new_proto = feat[pseudo_label == idx].mean(0).view(1,-1)
                         memory_bank_proto.update(idx, new_proto)
 
-                    # new_tar_proto = target_cluster_centroids[0]
-                    # memory_bank_proto.update(torch.arange(0, self.num_class, dtype=torch.long).cuda(), new_tar_proto)
-                    
-                    
-                    # labels = self.get_attr("target", "pseudo_label")[idx].cuda()
-                    # for idx in range(self.num_class):
-                    #     if len(feat[labels == idx]) == 0:
-                    #         continue
-                    #     idx = torch.ones(1, dtype=torch.int64) * idx
-                    #     idx = idx.cuda()
-                    #     old_proto = memory_bank_proto.at_idxs(idx)
-                    #     new_proto = feat[labels == idx].mean(0).view(1,-1)
-                    #     update_proto = new_proto
-                    #     # update_proto = update_data_memory(old_proto, new_proto, m=self.m)
-                    #     memory_bank_proto.update(idx, update_proto)
-                
                 if self.config.model_params.mix:
                     self.set_attr(domain_name, "memory_bank_proto", memory_bank_proto)
                 self.set_attr(domain_name, "memory_bank_wrapper", memory_bank)
