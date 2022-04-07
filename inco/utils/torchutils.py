@@ -13,8 +13,6 @@ import torchvision
 from torch.autograd import Function
 
 # Setup
-
-
 def set_seed(seed=1234, determine=True):
     os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
@@ -27,54 +25,7 @@ def set_seed(seed=1234, determine=True):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-
-# Tensor
-
-
-def expand_1d(t, num_reps):
-    return t.unsqueeze(1).expand(-1, num_reps)
-
-
-def isin(ar1, ar2):
-    # for every element of ar2, is ar2 in ar1
-    # return shape same to ar1
-    return (ar1[..., None] == ar2).any(-1)
-
-
-def dot(x, y):
-    return torch.sum(x * y, dim=-1)
-
-
-def contrastive_sim(instances, proto=None, tao=0.05):
-    # prob_matrix [bs, dim]
-    # proto_dim [nums, dim]
-    if proto is None:
-        proto = instances
-    ins_ext = instances.unsqueeze(1).repeat(1, proto.size(0), 1)
-    sim_matrix = torch.exp(dot(ins_ext, proto) / tao)
-    return sim_matrix
-
-
-def contrastive_sim_z(instances, proto=None, tao=0.05):
-    sim_matrix = contrastive_sim(instances, proto, tao)
-    return torch.sum(sim_matrix, dim=-1)
-
-
-def contrastive_prob(instances, proto=None, tao=0.05):
-    sim_matrix = contrastive_sim(instances, proto, tao)
-    return sim_matrix / torch.sum(sim_matrix, dim=-1).unsqueeze(-1)
-
-
-def pairwise_distance_2(input_1, input_2):
-    assert input_1.size(1) == input_2.size(1)
-    dis_vec = input_1.unsqueeze(1) - input_2
-    dis = torch.norm(dis_vec, dim=2)
-    return dis
-
-
 # nn
-
-
 def weights_init(model):
     for layer in model.modules():
         if isinstance(layer, torch.nn.Conv2d):
@@ -111,7 +62,6 @@ def split_params_by_name(model, name):
             without_name.append(param)
     return with_name, without_name
 
-
 class GradReverse(Function):
     @staticmethod
     def forward(ctx, x, lambd=1.0):
@@ -127,73 +77,7 @@ def grad_reverse(x, lambd=1.0):
     return GradReverse.apply(x, lambd)
 
 
-# nn.functional
-
-
-def entropy(x, eps=1e-5):
-    p = F.softmax(x, dim=-1)
-    entropy = -torch.mean(torch.sum(p * torch.log(p + eps), 1))
-    return entropy
-
-
-def pseudo_mask(x, thres=0.95):
-    prob = F.softmax(x, dim=1)
-    max_prob, pred = prob.max(dim=1)
-    mask = max_prob > thres
-    return mask
-
-
-def pseudo_label_loss(x,
-                      thres=0.95,
-                      aux=True,
-                      y=None,
-                      mask=None,
-                      num_class=10):
-    if mask is None:
-        mask = [True] * len(x)
-        mask = torch.tensor(mask)
-    # update mask
-    prob = F.softmax(x, dim=1)
-    max_prob, pred = prob.max(dim=1)
-    mask[max_prob < thres] = False
-    num_thres = mask.sum().item()
-
-    # calculate loss
-    out_thres, pred_thres = x[mask], pred[mask]
-    if num_thres == 0:
-        loss = torch.tensor(0)
-    else:
-        loss = F.cross_entropy(out_thres, pred_thres)
-
-    if aux:
-        num_select_per_class = [0] * num_class
-        num_correct_per_class = [0] * num_class
-        for i in range(num_class):
-            num_select_per_class[i] += (pred_thres == i).sum().item()
-            if y is not None:
-                num_correct_per_class[i] += ((
-                    (pred_thres == i) & (pred_thres.eq(y[mask]))).sum().item())
-
-        if y is not None:
-            num_correct = pred_thres.eq(y[mask]).sum().item()
-        else:
-            num_correct = -1
-
-        ret_aux = {
-            "num_select": num_thres,
-            "num_correct": num_correct,
-            "num_select_per_class": num_select_per_class,
-            "num_correct_per_class": num_correct_per_class,
-            "mask": mask,
-        }
-        return loss, ret_aux
-    else:
-        return loss
-
-
 # optim
-
-
 def lr_scheduler_invLR(optimizer, gamma=0.0001, power=0.75):
     def lmbda(iter):
         return (1 + gamma * iter)**(-power)
@@ -210,9 +94,8 @@ def get_lr(optimizer, g_id=0):
     return optimizer.param_groups[g_id]["lr"]
 
 
+
 # utils
-
-
 def copy_checkpoint(folder="./",
                     filename="checkpoint.pth.tar",
                     copyname="copy.pth.tar"):
@@ -302,17 +185,17 @@ def top_k_for_each_class(pred, prob, num_class):
 
 
 # MIM
-class MomentumSoftmax:
-    def __init__(self, num_class, m=1):
-        self.softmax_vector = torch.zeros(num_class).detach() + 1.0 / num_class
-        self.m = m
-        self.num = m
+# class MomentumSoftmax:
+#     def __init__(self, num_class, m=1):
+#         self.softmax_vector = torch.zeros(num_class).detach() + 1.0 / num_class
+#         self.m = m
+#         self.num = m
 
-    def update(self, mean_softmax, num=1):
-        self.softmax_vector = ((self.softmax_vector * self.num) +
-                               mean_softmax * num) / (self.num + num)
-        self.num += num
+#     def update(self, mean_softmax, num=1):
+#         self.softmax_vector = ((self.softmax_vector * self.num) +
+#                                mean_softmax * num) / (self.num + num)
+#         self.num += num
 
-    def reset(self):
-        # print(self.softmax_vector)
-        self.num = self.m
+#     def reset(self):
+#         # print(self.softmax_vector)
+#         self.num = self.m

@@ -1,7 +1,3 @@
-"""
-@author: Junguang Jiang
-@contact: JiangJunguang1123@outlook.com
-"""
 from cProfile import label
 
 import matplotlib
@@ -39,11 +35,6 @@ def visualize(source_feature: torch.Tensor, target_feature: torch.Tensor,
 
     # visualize using matplotlib
     fig, ax = plt.subplots(figsize=(10, 10))
-    # ax.spines['top'].set_visible(False)
-    # ax.spines['right'].set_visible(False)
-    # ax.spines['bottom'].set_visible(False)
-    # ax.spines['left'].set_visible(False)
-    # plt.scatter(X_tsne[:, 0], X_tsne[:, 1], c=domains, cmap=col.ListedColormap([target_color, source_color]), s=20)
     font1 = {
         'family' : 'Times New Roman',
         'size': 18

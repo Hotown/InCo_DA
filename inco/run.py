@@ -14,7 +14,7 @@ def adjust_config(config):
     set_default(config, "cuda", value=True)
     set_default(config, "gpu_device", value=None)
     set_default(config, "pretrained_exp_dir", value=None)
-    set_default(config, "agent", value="FixCLAgent")
+    set_default(config, "agent", value="InCoAgent")
 
     # data_params
     set_default(config.data_params, "aug_src", callback="aug")
@@ -43,7 +43,6 @@ def adjust_config(config):
     set_default(config.optim_params, "momentum", value=0.9)
     set_default(config.optim_params, "nesterov", value=True)
     set_default(config.optim_params, "lr_decay_rate", value=0.1)
-    set_default(config.optim_params, "cls_update", value=True)
 
     # clustering
     if config.loss_params.clus is not None:
@@ -85,13 +84,6 @@ def init_parser():
 
     # Model
     parser.add_argument("--net", type=str, default=None, help="which network to use")
-    parser.add_argument(
-        "--method",
-        type=str,
-        default=None,
-        choices=["S+T", "ENT", "MME"],
-        help="MME is proposed method, ENT is entropy minimization, S+T is training only on labeled examples",
-    )
 
     # Optim
     parser.add_argument(
@@ -127,14 +119,14 @@ def init_parser():
         default=None,
         metavar="S",
         help="early stopping to wait for improvment "
-        "before terminating. (default: 5 (5000 iterations))",
+        "before terminating. (default: 8)",
     )
     # Hyper-parameter
     parser.add_argument(
-        "--seed", type=int, default=None, metavar="S", help="random seed (default: 1)"
+        "--seed", type=int, default=None, metavar="S", help="random seed (default: 42)"
     )
     parser.add_argument(
-        "--T", type=float, default=None, metavar="T", help="temperature (default: 0.05)"
+        "--T", type=float, default=None, metavar="T", help="temperature (default: 0.3)"
     )
     parser.add_argument(
         "--lamda", type=float, default=None, metavar="LAM", help="value of lamda"
@@ -174,8 +166,6 @@ def update_config(config, args):
         config_json["data_params"]["source"] = args.source
     if args.target:
         config_json["data_params"]["target"] = args.target
-    if args.num:
-        config_json["data_params"]["fewshot"] = args.num
     if args.exp_id:
         config_json["exp_id"] = args.exp_id
     elif args.source:

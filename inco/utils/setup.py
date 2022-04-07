@@ -52,11 +52,6 @@ def process_config(config_json, override_dotmap=None):
     print(" *************************************** ")
     print()
 
-    # if config.pretrained_exp_dir is not None:
-    #     # don't make new dir more continuing training
-    #     exp_dir = config.pretrained_exp_dir
-    #     print("[INFO]: Continuing from previously finished training at %s." % exp_dir)
-    # else:
     exp_base = config.exp_base
 
     if config.debug:
@@ -92,21 +87,10 @@ def process_config(config_json, override_dotmap=None):
                 % (exp_dir, exp_dir)
             )
         else:
-            # TODO: exp_id
             config.exp_id += "-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
             exp_dir = os.path.join(
                  exp_base, "experiments", config.exp_name, config.exp_id
             )
-            # if config.exp_id is None:
-            #     config.exp_id = datetime.datetime.now().strftime("%Y-%m-%d")
-            # exp_dir = os.path.join(
-            #     exp_base, "experiments", config.exp_name, config.exp_id
-            # )
-            # if os.path.exists(exp_dir):
-            #     config.exp_id += "-" + datetime.datetime.now().strftime("%y%m%d%H%M%S")
-            #     exp_dir = os.path.join(
-            #         exp_base, "experiments", config.exp_name, config.exp_id
-            #     )
 
     # create some important directories to be used for the experiment.
     config.summary_dir = os.path.join(exp_dir, "summaries/")
@@ -188,9 +172,9 @@ def prepare_dirs(config):
         config.pretrained_exp_dir = exp_dir
 
 
-def get_cmd(
-    config, script_path="/rscratch/xyyue/anaconda3/envs/ssda2/bin/python ./run.py"
-):
-    config_out = mkstemp()[1]
-    save_json(config.toDict(), config_out)
-    return f"{script_path} --config {config_out}"
+# def get_cmd(
+#     config, script_path="/rscratch/xyyue/anaconda3/envs/ssda2/bin/python ./run.py"
+# ):
+#     config_out = mkstemp()[1]
+#     save_json(config.toDict(), config_out)
+#     return f"{script_path} --config {config_out}"

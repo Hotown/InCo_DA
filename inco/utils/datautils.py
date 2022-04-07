@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 # image_list
-
 def create_image_label(image_list):
     image_index = [x.split(" ")[0] for x in open(image_list)]
     label_list = np.array([int(x.split(" ")[1].strip()) for x in open(image_list)])
