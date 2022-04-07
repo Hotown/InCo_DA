@@ -3,7 +3,7 @@
     "exp_base": "./exps",
     "exp_name": "office",
     "exp_id": "amazon->webcam",
-    "agent": "SoAgent",
+    "agent": "InCoAgent",
     "phase": "analysis",
     "data_params": {
         "name": "office",

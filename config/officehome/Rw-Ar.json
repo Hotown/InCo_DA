@@ -3,7 +3,7 @@
   "exp_base": "./exps",
   "exp_name": "officehome",
   "exp_id": "Real->Art",
-  "agent": "FixDANNAgent",
+  "agent": "InCoAgent",
   "data_params": {
     "name": "office_home",
     "source": "Real",
@@ -11,7 +11,7 @@
     "aug": "aug_0"
   },
   "num_epochs": 100,
-  "warm_up": 5,
+  "warm_up": 10,
   "steps_epoch": null,
   "optim_params": {
     "learning_rate": 0.01,
@@ -23,30 +23,28 @@
     "cls_update": true
   },
   "model_params": {
+    "m": 0.9,
     "mlp": true,
     "mix": true,
     "out_dim": 512,
-    "version": "pretrain-resnet50",
-    "load_weight": "src-tgt",
-    "load_weight_thres": 10,
-    "load_weight_epoch": 5
+    "version": "pretrain-resnet50"
   },
   "loss_params": {
-    "thres_src": 0.99,
-    "thres_tgt": 0.99,
-    "temp": 0.1,
-    "loss": [
-      "cls-so",
-      "proto-each",
-      "I2M-cross",
-      "tgt-entmin"
-    ],
-    "weight": [1, 1, 1, 0.05],
-    "clus": {
-      "kmeans_freq": 1,
-      "type": ["each"],
-      "n_k": 15,
-      "k": [65, 130]
+      "T": 0.1,
+      "temp": 0.1,
+      "loss": [
+        "cls-so",
+        "transfer",
+        "proto-each",
+        "I2M-cross",
+        "tgt-entmin"
+      ],
+      "weight": [1, 1, 1, 1, 0.05],
+      "clus": {
+        "kmeans_freq": 1,
+        "type": ["each"],
+        "n_k": 15,
+        "k": [65, 130]
+      }
     }
-  }
 }

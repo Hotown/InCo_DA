@@ -3,7 +3,7 @@
     "exp_base": "./exps",
     "exp_name": "officehome",
     "exp_id": "Art->Clipart",
-    "agent": "FixDANNAgent",
+    "agent": "InCoAgent",
     "phase": "analysis",
     "data_params": {
         "name": "office_home",
@@ -48,5 +48,5 @@
           "n_k": 15,
           "k": [65, 130]
         }
-      }
+    }
 }

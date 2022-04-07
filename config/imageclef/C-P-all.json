@@ -3,7 +3,7 @@
     "exp_base": "./exps",
     "exp_name": "imageclef",
     "exp_id": "C->P",
-    "agent": "FixDANNAgent",
+    "agent": "InCoAgent",
     "data_params": {
       "name": "imageclef",
       "source": "c",
@@ -36,13 +36,12 @@
       "temp": 0.1,
       "loss": [
         "cls-so",
-        "cls-tgt",
         "proto-each",
         "I2M-cross",
         "transfer",
         "tgt-entmin"
       ],
-      "weight": [1, 0, 1, 1, 1, 0],
+      "weight": [1, 1, 1, 1, 0.05],
       "clus": {
         "kmeans_freq": 1,
         "type": ["each"],
