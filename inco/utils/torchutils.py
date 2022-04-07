@@ -182,20 +182,3 @@ def top_k_for_each_class(pred, prob, num_class):
         ind_topk = ind_class[ind_topk]
         pred_ret[ind_topk] = i
     return pred_ret
-
-
-# MIM
-# class MomentumSoftmax:
-#     def __init__(self, num_class, m=1):
-#         self.softmax_vector = torch.zeros(num_class).detach() + 1.0 / num_class
-#         self.m = m
-#         self.num = m
-
-#     def update(self, mean_softmax, num=1):
-#         self.softmax_vector = ((self.softmax_vector * self.num) +
-#                                mean_softmax * num) / (self.num + num)
-#         self.num += num
-
-#     def reset(self):
-#         # print(self.softmax_vector)
-#         self.num = self.m

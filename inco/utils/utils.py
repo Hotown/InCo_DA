@@ -183,8 +183,6 @@ def info_gpu_usage():
 
 
 # dotmap
-
-
 def exist_key(k):
     is_empty_dotmap = isinstance(k, DotMap) and len(k) == 0
     return isinstance(k, bool) or (not is_empty_dotmap and k is not None)

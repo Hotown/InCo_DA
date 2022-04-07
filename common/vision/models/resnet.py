@@ -1,9 +1,3 @@
-"""
-Modified based on torchvision.models.resnet.
-@author: Junguang Jiang
-@contact: JiangJunguang1123@outlook.com
-"""
-
 import torch.nn as nn
 from torchvision import models
 from torchvision.models.utils import load_state_dict_from_url

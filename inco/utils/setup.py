@@ -170,11 +170,3 @@ def prepare_dirs(config):
             shutil.copy(config.log_file, os.path.join(log_dir, "output_prev.log"))
         print(f"Copy {config.pretrained_exp_dir} to {exp_dir}")
         config.pretrained_exp_dir = exp_dir
-
-
-# def get_cmd(
-#     config, script_path="/rscratch/xyyue/anaconda3/envs/ssda2/bin/python ./run.py"
-# ):
-#     config_out = mkstemp()[1]
-#     save_json(config.toDict(), config_out)
-#     return f"{script_path} --config {config_out}"
