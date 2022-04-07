@@ -21,7 +21,7 @@ pip install -r requirements.txt
 - Run following command to train the InCo:
 
 ```
-python pcs/run.py --config config/${dataset}$/$task$.json
+python pcs/run.py --config config/${dataset}$/${task}$.json
 python pcs/run.py --config config/office/A-D-all.json
 ```
 
